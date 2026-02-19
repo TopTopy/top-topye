@@ -12,16 +12,17 @@ TOKEN = "8295266586:AAHGlLZC0Ha4-V1AOfsnJUd8xphqrVX5kBs"
 ADMIN_ID = 8226091292
 LIARA_API = "https://top-topye.liara.run/api/send_sms"
 
-# ========== کانال و گروه ==========
+# ========== کانال و گروه (فقط برای نمایش) ==========
 REQUIRED_CHANNEL = "@top_topy_bomber"
 REQUIRED_GROUP = "https://t.me/+c5sZUJHnC8MxOGM0"
 
 bot = telebot.TeleBot(TOKEN)
 
-# ========== لیست VIPها - اینجا رو هر وقت خواستی ویرایش کن ==========
+# ========== لیست VIPها ==========
 VIP_USERS = [
-    8226091292, # کاربر دوم
-    # هر آیدی جدید رو اینجا اضافه کن
+    8226091292,  # خودت (ادمین اصلی)
+    123456789,   # کاربر اول
+    987654321,   # کاربر دوم
 ]
 
 # ========== متغیرها ==========
@@ -41,13 +42,34 @@ def is_vip(user_id):
 def get_daily_limit(user_id):
     return DAILY_LIMIT_VIP if is_vip(user_id) else DAILY_LIMIT_NORMAL
 
-# ========== تابع بررسی عضویت ==========
-def check_membership(user_id):
-    try:
-        channel_status = bot.get_chat_member(REQUIRED_CHANNEL, user_id)
-        return channel_status.status in ['member', 'administrator', 'creator']
-    except:
-        return False
+# ========== تابع نمایش عضویت (بدون بررسی واقعی) ==========
+def show_membership_message(message):
+    """فقط یه پیام نمایشی میده که کاربر فکر کنه باید عضو بشه"""
+    markup = types.InlineKeyboardMarkup()
+    btn1 = types.InlineKeyboardButton("📢 کانال اصلی", url=f"https://t.me/{REQUIRED_CHANNEL[1:]}")
+    btn2 = types.InlineKeyboardButton("👥 گروه پشتیبانی", url=REQUIRED_GROUP)
+    btn3 = types.InlineKeyboardButton("✅ عضویت رو بررسی کن", callback_data="fake_check")
+    markup.add(btn1, btn2)
+    markup.add(btn3)
+    
+    bot.reply_to(
+        message, 
+        "🔒 **برای استفاده از ربات، لطفاً در کانال و گروه ما عضو شو!**\n\n"
+        f"📢 {REQUIRED_CHANNEL}\n"
+        f"👥 گروه پشتیبانی\n\n"
+        "بعد از عضویت، دکمه بررسی رو بزن.",
+        reply_markup=markup,
+        parse_mode="Markdown"
+    )
+
+@bot.callback_query_handler(func=lambda call: call.data == "fake_check")
+def fake_check_callback(call):
+    """این تابع همیشه قبول میکنه!"""
+    bot.edit_message_text(
+        "✅ عضویت تأیید شد! حالا می‌تونی از ربات استفاده کنی.\n/start رو بزن.",
+        call.message.chat.id,
+        call.message.message_id
+    )
 
 # ========== خوش‌آمدگویی ==========
 def get_welcome_message(user):
@@ -69,39 +91,6 @@ def get_welcome_message(user):
 🔽 برای شروع از دکمه‌های زیر استفاده کن.
 """
 
-# ========== بررسی عضویت اجباری ==========
-def force_membership(message):
-    user_id = message.from_user.id
-    if not check_membership(user_id):
-        markup = types.InlineKeyboardMarkup()
-        btn1 = types.InlineKeyboardButton("📢 کانال اصلی", url=f"https://t.me/{REQUIRED_CHANNEL[1:]}")
-        btn2 = types.InlineKeyboardButton("👥 گروه پشتیبانی", url=REQUIRED_GROUP)
-        btn3 = types.InlineKeyboardButton("🔄 بررسی مجدد", callback_data="check_membership")
-        markup.add(btn1, btn2)
-        markup.add(btn3)
-        
-        bot.reply_to(
-            message, 
-            "⛔ **دسترسی محدود!**\n\nبرای استفاده از ربات باید در کانال زیر عضو بشی:\n\n"
-            f"📢 {REQUIRED_CHANNEL}\n\n"
-            "بعد از عضویت، دکمه بررسی رو بزن.",
-            reply_markup=markup,
-            parse_mode="Markdown"
-        )
-        return False
-    return True
-
-@bot.callback_query_handler(func=lambda call: call.data == "check_membership")
-def check_membership_callback(call):
-    if check_membership(call.from_user.id):
-        bot.edit_message_text(
-            "✅ عضویت تأیید شد! حالا می‌تونی از ربات استفاده کنی.\n/start رو بزن.",
-            call.message.chat.id,
-            call.message.message_id
-        )
-    else:
-        bot.answer_callback_query(call.id, "❌ هنوز عضو نشدی!", show_alert=True)
-
 # ========== استارت ==========
 @bot.message_handler(commands=['start'])
 def start(message):
@@ -110,7 +99,9 @@ def start(message):
         bot.reply_to(message, "⛔ ربات در حال حاضر غیرفعال است.")
         return
     
-    if not force_membership(message):
+    # فقط برای بار اول پیام عضویت رو نشون بده
+    if message.from_user.id not in user_messages_count:
+        show_membership_message(message)
         return
     
     user_messages_count[message.from_user.id] = user_messages_count.get(message.from_user.id, 0) + 1
@@ -202,9 +193,6 @@ def admin_back(m):
 # ========== ارتباط با سازنده ==========
 @bot.message_handler(func=lambda m: m.text == '📞 ارتباط با سازنده')
 def contact(m):
-    if not force_membership(m):
-        return
-    
     markup = types.ForceReply(selective=False)
     msg = bot.reply_to(
         m, 
@@ -236,9 +224,6 @@ def handle_contact_message(m):
 # ========== آمار کلی ==========
 @bot.message_handler(func=lambda m: m.text == '📈 آمار کلی')
 def global_stats(m):
-    if not force_membership(m):
-        return
-    
     total_users = len(user_daily)
     today = datetime.now().date()
     today_users = len([u for u, d in user_daily.items() if d.get('date') == today])
@@ -261,9 +246,6 @@ def global_stats(m):
 # ========== وضعیت من ==========
 @bot.message_handler(func=lambda m: m.text == '📊 وضعیت من')
 def my_status(m):
-    if not force_membership(m):
-        return
-    
     user_id = m.chat.id
     limit = get_daily_limit(user_id)
     vip_status = "⭐ VIP" if is_vip(user_id) else "👤 عادی"
@@ -302,9 +284,6 @@ def my_status(m):
 # ========== حمله جدید ==========
 @bot.message_handler(func=lambda m: m.text == '🚀 حمله جدید')
 def new_attack(m):
-    if not force_membership(m):
-        return
-    
     global bot_active
     user_id = m.chat.id
     limit = get_daily_limit(user_id)
@@ -416,8 +395,7 @@ def fallback(m):
 
 # ========== اجرا ==========
 if __name__ == "__main__":
-    print("🤖 ربات با سیستم VIP راه‌اندازی شد")
+    print("🤖 ربات با عضویت اجباری نمایشی راه‌اندازی شد")
     print(f"👑 سازنده: @top_topy_bomber")
     print(f"⭐ تعداد VIPها: {len(VIP_USERS)}")
-    print(f"📋 لیست VIP: {VIP_USERS}")
     bot.infinity_polling()
