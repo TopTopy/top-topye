@@ -20,7 +20,7 @@ bot = telebot.TeleBot(TOKEN)
 
 # ========== لیست VIPها ==========
 VIP_USERS = [
-    8226091292,  # خودت (ادمین اصلی  # کاربر دوم
+    8226091292,  # خودت (ادمین اصلی)
 ]
 
 # ========== متغیرها ==========
@@ -77,7 +77,7 @@ def get_welcome_message(user):
     
     return f"""🎯 **به ربات اس ام اس بمبر خوش اومدی {name}!**
 
-🔥 **ساخته شده توسط @top_topy_bomber**
+🔥 **ساخته شده توسط @BHOPYTNEAK**
 {vip_status}
 
 📱 **قابلیت‌ها:**
@@ -136,7 +136,7 @@ def vip_list(m):
     text = "📋 **لیست VIPها:**\n\n"
     for uid in VIP_USERS:
         text += f"👤 `{uid}`\n"
-    text += f"\n👑 @top_topy_bomber"
+    text += f"\n👑 @BHOPYTNEAK"
     
     bot.reply_to(m, text, parse_mode="Markdown")
 
@@ -159,7 +159,7 @@ def admin_stats(m):
 ⚡ حملات فعال: {active}
 📨 کل پیام‌ها: {total_messages}
 🔰 وضعیت ربات: {status}
-👑 سازنده: @top_topy_bomber
+👑 سازنده: @BHOPYTNEAK
 """
     bot.reply_to(m, msg, parse_mode="Markdown")
 
@@ -180,7 +180,7 @@ def admin_users(m):
         if data.get('date') == today:
             vip = "⭐" if is_vip(uid) else "👤"
             report += f"{vip} `{uid}`: {data.get('count', 0)} حمله\n"
-    report += f"\n👑 @top_topy_bomber"
+    report += f"\n👑 @BHOPYTNEAK"
     bot.reply_to(m, report, parse_mode="Markdown")
 
 # ========== برگشت ==========
@@ -194,7 +194,7 @@ def contact(m):
     markup = types.ForceReply(selective=False)
     msg = bot.reply_to(
         m, 
-        "📝 **پیامت رو بنویس، برات می‌فرستم برای سازنده:**\n\n👑 @top_topy_bomber",
+        "📝 **پیامت رو بنویس، برات می‌فرستم برای سازنده:**\n\n👑 @BHOPYTNEAK",
         reply_markup=markup,
         parse_mode="Markdown"
     )
@@ -217,7 +217,7 @@ def handle_contact_message(m):
         parse_mode="Markdown"
     )
     
-    bot.reply_to(m, "✅ پیامت با موفقیت ارسال شد. به زودی پاسخ می‌دم.\n👑 @top_topy_bomber")
+    bot.reply_to(m, "✅ پیامت با موفقیت ارسال شد. به زودی پاسخ می‌دم.\n👑 @BHOPYTNEAK")
 
 # ========== آمار کلی ==========
 @bot.message_handler(func=lambda m: m.text == '📈 آمار کلی')
@@ -237,7 +237,7 @@ def global_stats(m):
 ⚡ محدودیت عادی: {DAILY_LIMIT_NORMAL} بار
 ⚡ محدودیت VIP: {DAILY_LIMIT_VIP} بار
 
-👑 **ساخته شده توسط @top_topy_bomber**"""
+👑 **ساخته شده توسط @BHOPYTNEAK**"""
     
     bot.reply_to(m, msg, parse_mode="Markdown")
 
@@ -275,7 +275,7 @@ def my_status(m):
             wait = 120 - time_diff
             status_text += f"\n⏳ زمان انتظار تا حمله بعد: {wait} ثانیه"
     
-    status_text += f"\n\n👑 @top_topy_bomber"
+    status_text += f"\n\n👑 @BHOPYTNEAK"
     
     bot.reply_to(m, status_text, parse_mode="Markdown")
 
@@ -363,7 +363,7 @@ def run_attack(phone, chat_id, msg_id):
 📊 مجموع: {total}
 📈 درصد موفقیت: {percent}%
 
-👑 @top_topy_bomber"""
+👑 @BHOPYTNEAK"""
                 
                 bot.edit_message_text(final_msg, chat_id, msg_id, parse_mode="Markdown")
             else:
@@ -394,6 +394,6 @@ def fallback(m):
 # ========== اجرا ==========
 if __name__ == "__main__":
     print("🤖 ربات با عضویت اجباری نمایشی راه‌اندازی شد")
-    print(f"👑 سازنده: @top_topy_bomber")
+    print(f"👑 سازنده: @BHOPYTNEAK")
     print(f"⭐ تعداد VIPها: {len(VIP_USERS)}")
     bot.infinity_polling()
