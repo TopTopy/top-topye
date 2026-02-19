@@ -6,6 +6,8 @@ import threading
 import time
 from datetime import datetime, timedelta
 import re
+import os
+from flask import Flask, request
 
 # ========== تنظیمات اصلی ==========
 TOKEN = "8295266586:AAHGlLZC0Ha4-V1AOfsnJUd8xphqrVX5kBs"
@@ -13,9 +15,12 @@ ADMIN_ID = 8226091292
 LIARA_API = "https://top-topye.liara.run/api/send_sms"
 
 # ========== کانال و گروه‌ها (2 گروه و 1 کانال) ==========
-REQUIRED_CHANNEL = "@top_topy_bomber"  # کانال اول
-REQUIRED_GROUP1 = "https://t.me/+c5sZUJHnC8MxOGM0"  # گروه Los Angeles
-REQUIRED_GROUP2 = "@BHOPYTNEAK"  # گروه دوم (سوپرگروه یا کانال)
+REQUIRED_CHANNEL = "@top_topy_bomber"
+REQUIRED_GROUP1 = "https://t.me/+c5sZUJHnC8MxOGM0"
+REQUIRED_GROUP2 = "@BHOPYTNEAK"
+
+# ========== سازنده بات ==========
+CREATOR_USERNAME = "@top_topy_bombe"
 
 bot = telebot.TeleBot(TOKEN)
 
@@ -66,7 +71,7 @@ def get_welcome_message(user):
     
     return f"""🎯 **به ربات اس ام اس بمبر خوش اومدی {name}!**
 
-🔥 **ساخته شده توسط @BHOPYTNEAK**
+🔥 **ساخته شده توسط {CREATOR_USERNAME}**
 {vip_status}
 
 📱 **قابلیت‌ها:**
@@ -127,7 +132,7 @@ def vip_list(m):
     text = "📋 **لیست VIPها:**\n\n"
     for uid in VIP_USERS:
         text += f"👤 `{uid}`\n"
-    text += f"\n👑 @BHOPYTNEAK"
+    text += f"\n👑 {CREATOR_USERNAME}"
     
     bot.reply_to(m, text, parse_mode="Markdown")
 
@@ -150,7 +155,7 @@ def admin_stats(m):
 ⚡ حملات فعال: {active}
 📨 کل پیام‌ها: {total_messages}
 🔰 وضعیت ربات: {status}
-👑 سازنده: @BHOPYTNEAK
+👑 سازنده: {CREATOR_USERNAME}
 """
     bot.reply_to(m, msg, parse_mode="Markdown")
 
@@ -171,7 +176,7 @@ def admin_users(m):
         if data.get('date') == today:
             vip = "⭐" if is_vip(uid) else "👤"
             report += f"{vip} `{uid}`: {data.get('count', 0)} حمله\n"
-    report += f"\n👑 @BHOPYTNEAK"
+    report += f"\n👑 {CREATOR_USERNAME}"
     bot.reply_to(m, report, parse_mode="Markdown")
 
 # ========== برگشت ==========
@@ -185,7 +190,7 @@ def contact(m):
     markup = types.ForceReply(selective=False)
     msg = bot.reply_to(
         m, 
-        "📝 **پیامت رو بنویس، برات می‌فرستم برای سازنده:**\n\n👑 @BHOPYTNEAK",
+        f"📝 **پیامت رو بنویس، برات می‌فرستم برای سازنده:**\n\n👑 {CREATOR_USERNAME}",
         reply_markup=markup,
         parse_mode="Markdown"
     )
@@ -204,11 +209,11 @@ def handle_contact_message(m):
     
     bot.send_message(
         ADMIN_ID,
-        f"📨 **پیام جدید از کاربر:**\n\n{user_info}\n\n📝 {m.text}",
+        f"📨 **پیام جدید از کاربر:**\n\n{user_info}\n\n📝 {m.text}\n\n👑 {CREATOR_USERNAME}",
         parse_mode="Markdown"
     )
     
-    bot.reply_to(m, "✅ پیامت با موفقیت ارسال شد. به زودی پاسخ می‌دم.\n👑 @BHOPYTNEAK")
+    bot.reply_to(m, f"✅ پیامت با موفقیت ارسال شد. به زودی پاسخ می‌دم.\n👑 {CREATOR_USERNAME}")
 
 # ========== آمار کلی ==========
 @bot.message_handler(func=lambda m: m.text == '📈 آمار کلی')
@@ -228,7 +233,7 @@ def global_stats(m):
 ⚡ محدودیت عادی: {DAILY_LIMIT_NORMAL} بار
 ⚡ محدودیت VIP: {DAILY_LIMIT_VIP} بار
 
-👑 **ساخته شده توسط @BHOPYTNEAK**"""
+👑 **ساخته شده توسط {CREATOR_USERNAME}**"""
     
     bot.reply_to(m, msg, parse_mode="Markdown")
 
@@ -266,7 +271,7 @@ def my_status(m):
             wait = 120 - time_diff
             status_text += f"\n⏳ زمان انتظار تا حمله بعد: {wait} ثانیه"
     
-    status_text += f"\n\n👑 @BHOPYTNEAK"
+    status_text += f"\n\n👑 {CREATOR_USERNAME}"
     
     bot.reply_to(m, status_text, parse_mode="Markdown")
 
@@ -354,7 +359,7 @@ def run_attack(phone, chat_id, msg_id):
 📊 مجموع: {total}
 📈 درصد موفقیت: {percent}%
 
-👑 @BHOPYTNEAK"""
+👑 {CREATOR_USERNAME}"""
                 
                 bot.edit_message_text(final_msg, chat_id, msg_id, parse_mode="Markdown")
             else:
@@ -398,12 +403,48 @@ def fallback(m):
     
     bot.reply_to(m, "⚠️ لطفاً از دکمه‌های منو استفاده کن.")
 
+# ========== تنظیم Flask برای Webhook ==========
+app = Flask(__name__)
+
+@app.route('/webhook', methods=['POST'])
+def webhook():
+    if request.headers.get('content-type') == 'application/json':
+        json_string = request.get_data().decode('utf-8')
+        update = telebot.types.Update.de_json(json_string)
+        bot.process_new_updates([update])
+        return 'OK', 200
+    return 'Forbidden', 403
+
+@app.route('/setwebhook')
+def set_webhook():
+    # آدرس برنامه روی Render
+    webhook_url = f"https://top-topye.onrender.com/webhook"
+    
+    # پاک کردن webhook قبلی
+    bot.remove_webhook()
+    time.sleep(1)
+    
+    # ست کردن webhook جدید
+    success = bot.set_webhook(url=webhook_url)
+    
+    if success:
+        return f"✅ Webhook set to {webhook_url}", 200
+    else:
+        return "❌ Failed to set webhook", 400
+
+@app.route('/')
+def index():
+    return f"ربات اس ام اس بمبر فعال است ✅\n👑 سازنده: {CREATOR_USERNAME}", 200
+
 # ========== اجرا ==========
 if __name__ == "__main__":
-    print("🤖 ربات راه‌اندازی شد")
-    print(f"👑 سازنده: @BHOPYTNEAK")
+    print("🤖 ربات با Webhook راه‌اندازی شد")
+    print(f"👑 سازنده: {CREATOR_USERNAME}")
     print(f"⭐ تعداد VIPها: {len(VIP_USERS)}")
     print(f"📢 کانال: {REQUIRED_CHANNEL}")
     print(f"👥 گروه 1: {REQUIRED_GROUP1}")
     print(f"👥 گروه 2: {REQUIRED_GROUP2}")
-    bot.infinity_polling()
+    
+    # پورت مورد نظر Render
+    port = int(os.environ.get('PORT', 5000))
+    app.run(host='0.0.0.0', port=port)
