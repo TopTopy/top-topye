@@ -12,9 +12,9 @@ TOKEN = "8295266586:AAHGlLZC0Ha4-V1AOfsnJUd8xphqrVX5kBs"
 ADMIN_ID = 8226091292
 LIARA_API = "https://top-topye.liara.run/api/send_sms"
 
-# ========== کانال و گروه (فقط برای نمایش) ==========
+# ========== کانال و گروه (فقط برای نمایش لینک) ==========
 REQUIRED_CHANNEL = "@top_topy_bomber"
-REQUIRED_GROUP = "https://t.me/+c5sZUJHnC8MxOGM0"
+REQUIRED_GROUP_LINK = "https://t.me/+c5sZUJHnC8MxOGM0"
 
 bot = telebot.TeleBot(TOKEN)
 
@@ -40,36 +40,7 @@ def is_vip(user_id):
 def get_daily_limit(user_id):
     return DAILY_LIMIT_VIP if is_vip(user_id) else DAILY_LIMIT_NORMAL
 
-# ========== تابع نمایش عضویت (بدون بررسی واقعی) ==========
-def show_membership_message(message):
-    """فقط یه پیام نمایشی میده که کاربر فکر کنه باید عضو بشه"""
-    markup = types.InlineKeyboardMarkup()
-    btn1 = types.InlineKeyboardButton("📢 کانال اصلی", url=f"https://t.me/{REQUIRED_CHANNEL[1:]}")
-    btn2 = types.InlineKeyboardButton("👥 گروه پشتیبانی", url=REQUIRED_GROUP)
-    btn3 = types.InlineKeyboardButton("✅ عضویت رو بررسی کن", callback_data="fake_check")
-    markup.add(btn1, btn2)
-    markup.add(btn3)
-    
-    bot.reply_to(
-        message, 
-        "🔒 **برای استفاده از ربات، لطفاً در کانال و گروه ما عضو شو!**\n\n"
-        f"📢 {REQUIRED_CHANNEL}\n"
-        f"👥 گروه پشتیبانی\n\n"
-        "بعد از عضویت، دکمه بررسی رو بزن.",
-        reply_markup=markup,
-        parse_mode="Markdown"
-    )
-
-@bot.callback_query_handler(func=lambda call: call.data == "fake_check")
-def fake_check_callback(call):
-    """این تابع همیشه قبول میکنه!"""
-    bot.edit_message_text(
-        "✅ عضویت تأیید شد! حالا می‌تونی از ربات استفاده کنی.\n/start رو بزن.",
-        call.message.chat.id,
-        call.message.message_id
-    )
-
-# ========== خوش‌آمدگویی ==========
+# ========== خوش‌آمدگویی با لینک کانال و گروه ==========
 def get_welcome_message(user):
     name = user.first_name or "عزیز"
     limit = get_daily_limit(user.id)
@@ -79,6 +50,9 @@ def get_welcome_message(user):
 
 🔥 **ساخته شده توسط @BHOPYTNEAK**
 {vip_status}
+
+📢 **کانال ما:** {REQUIRED_CHANNEL}
+👥 **گروه پشتیبانی:** [کلیک کن] ({REQUIRED_GROUP_LINK})
 
 📱 **قابلیت‌ها:**
 • ارسال پیامک به بیش از ۲۰۰ سرویس ایرانی
@@ -93,16 +67,13 @@ def get_welcome_message(user):
 @bot.message_handler(commands=['start'])
 def start(message):
     global bot_active
-    if not bot_active and message.from_user.id != ADMIN_ID:
+    user_id = message.from_user.id
+    
+    if not bot_active and user_id != ADMIN_ID:
         bot.reply_to(message, "⛔ ربات در حال حاضر غیرفعال است.")
         return
     
-    # فقط برای بار اول پیام عضویت رو نشون بده
-    if message.from_user.id not in user_messages_count:
-        show_membership_message(message)
-        return
-    
-    user_messages_count[message.from_user.id] = user_messages_count.get(message.from_user.id, 0) + 1
+    user_messages_count[user_id] = user_messages_count.get(user_id, 0) + 1
     
     markup = types.ReplyKeyboardMarkup(row_width=2, resize_keyboard=True)
     btn1 = types.KeyboardButton('🚀 حمله جدید')
@@ -111,7 +82,7 @@ def start(message):
     btn4 = types.KeyboardButton('⛔ توقف حمله')
     btn5 = types.KeyboardButton('📞 ارتباط با سازنده')
     
-    if message.from_user.id == ADMIN_ID:
+    if user_id == ADMIN_ID:
         btn6 = types.KeyboardButton('👑 پنل مدیریت')
         markup.add(btn1, btn2, btn3, btn4, btn5, btn6)
     else:
@@ -389,11 +360,29 @@ def stop_attack(m):
 # ========== پیام‌های ناشناخته ==========
 @bot.message_handler(func=lambda m: True)
 def fallback(m):
+    # اگه کاربر در حالت انتظار برای شماره هست، نباید اینجا بیاد
+    if user_states.get(m.chat.id) == "waiting_for_phone":
+        return
+    
+    # اگه کاربر در حالت انتظار برای پیام به سازنده هست، نباید اینجا بیاد
+    if user_states.get(m.chat.id) and user_states[m.chat.id][0] == "waiting_for_contact":
+        return
+    
+    # اگه پیام یکی از دکمه‌های معتبر هست، قبلاً هندلر مخصوص خودش اجرا شده
+    valid_buttons = ['🚀 حمله جدید', '📊 وضعیت من', '📈 آمار کلی', '⛔ توقف حمله', 
+                     '📞 ارتباط با سازنده', '👑 پنل مدیریت', '📊 آمار مدیریت', 
+                     '📋 لیست VIPها', '🔴 خاموش/روشن', '📋 گزارش کاربران', '🔙 برگشت']
+    
+    if m.text in valid_buttons:
+        return
+    
     bot.reply_to(m, "⚠️ لطفاً از دکمه‌های منو استفاده کن.")
 
 # ========== اجرا ==========
 if __name__ == "__main__":
-    print("🤖 ربات با عضویت اجباری نمایشی راه‌اندازی شد")
+    print("🤖 ربات راه‌اندازی شد")
     print(f"👑 سازنده: @BHOPYTNEAK")
     print(f"⭐ تعداد VIPها: {len(VIP_USERS)}")
+    print(f"📢 کانال: {REQUIRED_CHANNEL}")
+    print(f"👥 گروه: {REQUIRED_GROUP_LINK}")
     bot.infinity_polling()
