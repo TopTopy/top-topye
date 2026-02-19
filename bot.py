@@ -12,9 +12,10 @@ TOKEN = "8295266586:AAHGlLZC0Ha4-V1AOfsnJUd8xphqrVX5kBs"
 ADMIN_ID = 8226091292
 LIARA_API = "https://top-topye.liara.run/api/send_sms"
 
-# ========== کانال و گروه (فقط برای نمایش لینک) ==========
-REQUIRED_CHANNEL = "@top_topy_bomber"
-REQUIRED_GROUP_LINK = "https://t.me/+c5sZUJHnC8MxOGM0"
+# ========== کانال و گروه‌ها (2 گروه و 1 کانال) ==========
+REQUIRED_CHANNEL = "@top_topy_bomber"  # کانال اول
+REQUIRED_GROUP1 = "https://t.me/+c5sZUJHnC8MxOGM0"  # گروه Los Angeles
+REQUIRED_GROUP2 = "@BHOPYTNEAK"  # گروه دوم (سوپرگروه یا کانال)
 
 bot = telebot.TeleBot(TOKEN)
 
@@ -40,7 +41,24 @@ def is_vip(user_id):
 def get_daily_limit(user_id):
     return DAILY_LIMIT_VIP if is_vip(user_id) else DAILY_LIMIT_NORMAL
 
-# ========== خوش‌آمدگویی با لینک کانال و گروه ==========
+# ========== تابع ارسال پیام عضویت (پیام اول) ==========
+def send_membership_message(chat_id):
+    """ارسال پیام با لینک‌های عضویت"""
+    markup = types.InlineKeyboardMarkup(row_width=1)
+    btn1 = types.InlineKeyboardButton("📢 کانال اصلی", url=f"https://t.me/{REQUIRED_CHANNEL[1:]}")
+    btn2 = types.InlineKeyboardButton("👥 گروه لس آنجلس", url=REQUIRED_GROUP1)
+    btn3 = types.InlineKeyboardButton("👥 گروه دوم", url=f"https://t.me/{REQUIRED_GROUP2[1:]}")
+    markup.add(btn1, btn2, btn3)
+    
+    bot.send_message(
+        chat_id,
+        "🔰 **برای استفاده از ربات، لطفاً عضو شو!**\n\n"
+        "با عضویت در کانال و گروه‌های ما، از آخرین اخبار و آموزش‌ها باخبر میشی.",
+        reply_markup=markup,
+        parse_mode="Markdown"
+    )
+
+# ========== خوش‌آمدگویی ==========
 def get_welcome_message(user):
     name = user.first_name or "عزیز"
     limit = get_daily_limit(user.id)
@@ -50,9 +68,6 @@ def get_welcome_message(user):
 
 🔥 **ساخته شده توسط @BHOPYTNEAK**
 {vip_status}
-
-📢 **کانال ما:** {REQUIRED_CHANNEL}
-👥 **گروه پشتیبانی:** [کلیک کن] ({REQUIRED_GROUP_LINK})
 
 📱 **قابلیت‌ها:**
 • ارسال پیامک به بیش از ۲۰۰ سرویس ایرانی
@@ -75,6 +90,11 @@ def start(message):
     
     user_messages_count[user_id] = user_messages_count.get(user_id, 0) + 1
     
+    # ارسال دو پیام پشت سر هم
+    # پیام اول: عضویت
+    send_membership_message(message.chat.id)
+    
+    # پیام دوم: منوی اصلی
     markup = types.ReplyKeyboardMarkup(row_width=2, resize_keyboard=True)
     btn1 = types.KeyboardButton('🚀 حمله جدید')
     btn2 = types.KeyboardButton('📊 وضعیت من')
@@ -88,7 +108,7 @@ def start(message):
     else:
         markup.add(btn1, btn2, btn3, btn4, btn5)
     
-    bot.reply_to(message, get_welcome_message(message.from_user), reply_markup=markup, parse_mode="Markdown")
+    bot.send_message(message.chat.id, get_welcome_message(message.from_user), reply_markup=markup, parse_mode="Markdown")
 
 # ========== پنل مدیریت ==========
 @bot.message_handler(func=lambda m: m.text == '👑 پنل مدیریت' and m.from_user.id == ADMIN_ID)
@@ -384,5 +404,6 @@ if __name__ == "__main__":
     print(f"👑 سازنده: @BHOPYTNEAK")
     print(f"⭐ تعداد VIPها: {len(VIP_USERS)}")
     print(f"📢 کانال: {REQUIRED_CHANNEL}")
-    print(f"👥 گروه: {REQUIRED_GROUP_LINK}")
+    print(f"👥 گروه 1: {REQUIRED_GROUP1}")
+    print(f"👥 گروه 2: {REQUIRED_GROUP2}")
     bot.infinity_polling()
