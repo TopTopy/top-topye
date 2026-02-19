@@ -7,6 +7,7 @@ import time
 from datetime import datetime, timedelta
 import re
 import os
+import sqlite3
 from flask import Flask, request
 
 # ========== تنظیمات اصلی ==========
@@ -14,30 +15,123 @@ TOKEN = "8295266586:AAHGlLZC0Ha4-V1AOfsnJUd8xphqrVX5kBs"
 ADMIN_ID = 8226091292
 LIARA_API = "https://top-topye.liara.run/api/send_sms"
 
-# ========== کانال و گروه‌ها (2 گروه و 1 کانال) ==========
+# ========== کانال و گروه‌ها ==========
 REQUIRED_CHANNEL = "@top_topy_bomber"
 REQUIRED_GROUP1 = "https://t.me/+c5sZUJHnC8MxOGM0"
 REQUIRED_GROUP2 = "@BHOPYTNEAK"
-
-# ========== سازنده بات ==========
 CREATOR_USERNAME = "@top_topy_bombe"
 
 bot = telebot.TeleBot(TOKEN)
 
 # ========== لیست VIPها ==========
 VIP_USERS = [
-    8226091292,  # خودت (ادمین اصلی)
+    8226091292,
 ]
 
 # ========== متغیرها ==========
 user_states = {}
 active_attacks = {}
-user_daily = {}
 DAILY_LIMIT_NORMAL = 5
 DAILY_LIMIT_VIP = 20
 bot_active = True
-user_messages_count = {}
-user_last_use = {}
+
+# ========== راه‌اندازی دیتابیس SQLite ==========
+def init_database():
+    """ایجاد جداول دیتابیس"""
+    conn = sqlite3.connect('bot_data.db')
+    c = conn.cursor()
+    
+    # جدول آمار روزانه کاربران
+    c.execute('''CREATE TABLE IF NOT EXISTS user_daily
+                 (user_id INTEGER PRIMARY KEY, 
+                  date TEXT,
+                  count INTEGER)''')
+    
+    # جدول تعداد پیام‌های کاربران
+    c.execute('''CREATE TABLE IF NOT EXISTS user_messages
+                 (user_id INTEGER PRIMARY KEY,
+                  count INTEGER)''')
+    
+    # جدول آخرین استفاده
+    c.execute('''CREATE TABLE IF NOT EXISTS user_last_use
+                 (user_id INTEGER PRIMARY KEY,
+                  last_use INTEGER)''')
+    
+    conn.commit()
+    conn.close()
+
+# ========== توابع کار با دیتابیس ==========
+def get_user_daily(user_id):
+    """گرفتن آمار روزانه کاربر"""
+    conn = sqlite3.connect('bot_data.db')
+    c = conn.cursor()
+    today = datetime.now().date().isoformat()
+    
+    c.execute("SELECT count FROM user_daily WHERE user_id = ? AND date = ?", 
+              (user_id, today))
+    result = c.fetchone()
+    conn.close()
+    
+    return result[0] if result else 0
+
+def update_user_daily(user_id, count):
+    """به‌روزرسانی آمار روزانه کاربر"""
+    conn = sqlite3.connect('bot_data.db')
+    c = conn.cursor()
+    today = datetime.now().date().isoformat()
+    
+    c.execute("INSERT OR REPLACE INTO user_daily (user_id, date, count) VALUES (?, ?, ?)",
+              (user_id, today, count))
+    conn.commit()
+    conn.close()
+
+def increment_user_daily(user_id):
+    """افزایش یک واحد به آمار روزانه کاربر"""
+    current = get_user_daily(user_id)
+    update_user_daily(user_id, current + 1)
+
+def get_user_messages_count(user_id):
+    """گرفتن تعداد کل پیام‌های کاربر"""
+    conn = sqlite3.connect('bot_data.db')
+    c = conn.cursor()
+    
+    c.execute("SELECT count FROM user_messages WHERE user_id = ?", (user_id,))
+    result = c.fetchone()
+    conn.close()
+    
+    return result[0] if result else 0
+
+def increment_user_messages(user_id):
+    """افزایش تعداد پیام‌های کاربر"""
+    conn = sqlite3.connect('bot_data.db')
+    c = conn.cursor()
+    current = get_user_messages_count(user_id)
+    
+    c.execute("INSERT OR REPLACE INTO user_messages (user_id, count) VALUES (?, ?)",
+              (user_id, current + 1))
+    conn.commit()
+    conn.close()
+
+def get_user_last_use(user_id):
+    """گرفتن آخرین زمان استفاده کاربر"""
+    conn = sqlite3.connect('bot_data.db')
+    c = conn.cursor()
+    
+    c.execute("SELECT last_use FROM user_last_use WHERE user_id = ?", (user_id,))
+    result = c.fetchone()
+    conn.close()
+    
+    return result[0] if result else 0
+
+def set_user_last_use(user_id, timestamp):
+    """تنظیم آخرین زمان استفاده کاربر"""
+    conn = sqlite3.connect('bot_data.db')
+    c = conn.cursor()
+    
+    c.execute("INSERT OR REPLACE INTO user_last_use (user_id, last_use) VALUES (?, ?)",
+              (user_id, timestamp))
+    conn.commit()
+    conn.close()
 
 # ========== توابع کمکی ==========
 def is_vip(user_id):
@@ -46,9 +140,14 @@ def is_vip(user_id):
 def get_daily_limit(user_id):
     return DAILY_LIMIT_VIP if is_vip(user_id) else DAILY_LIMIT_NORMAL
 
-# ========== تابع ارسال پیام عضویت (پیام اول) ==========
+def check_daily_limit(user_id):
+    """بررسی محدودیت روزانه"""
+    today_used = get_user_daily(user_id)
+    limit = get_daily_limit(user_id)
+    return today_used < limit
+
+# ========== تابع ارسال پیام عضویت ==========
 def send_membership_message(chat_id):
-    """ارسال پیام با لینک‌های عضویت"""
     markup = types.InlineKeyboardMarkup(row_width=1)
     btn1 = types.InlineKeyboardButton("📢 کانال اصلی", url=f"https://t.me/{REQUIRED_CHANNEL[1:]}")
     btn2 = types.InlineKeyboardButton("👥 گروه لس آنجلس", url=REQUIRED_GROUP1)
@@ -66,13 +165,16 @@ def send_membership_message(chat_id):
 # ========== خوش‌آمدگویی ==========
 def get_welcome_message(user):
     name = user.first_name or "عزیز"
+    today_used = get_user_daily(user.id)
     limit = get_daily_limit(user.id)
+    remaining = limit - today_used
     vip_status = "⭐ VIP" if is_vip(user.id) else "👤 عادی"
     
     return f"""🎯 **به ربات اس ام اس بمبر خوش اومدی {name}!**
 
 🔥 **ساخته شده توسط {CREATOR_USERNAME}**
 {vip_status}
+📊 استفاده امروز: {today_used}/{limit}
 
 📱 **قابلیت‌ها:**
 • ارسال پیامک به بیش از ۲۰۰ سرویس ایرانی
@@ -93,13 +195,11 @@ def start(message):
         bot.reply_to(message, "⛔ ربات در حال حاضر غیرفعال است.")
         return
     
-    user_messages_count[user_id] = user_messages_count.get(user_id, 0) + 1
+    increment_user_messages(user_id)
     
-    # ارسال دو پیام پشت سر هم
-    # پیام اول: عضویت
+    # ارسال دو پیام
     send_membership_message(message.chat.id)
     
-    # پیام دوم: منوی اصلی
     markup = types.ReplyKeyboardMarkup(row_width=2, resize_keyboard=True)
     btn1 = types.KeyboardButton('🚀 حمله جدید')
     btn2 = types.KeyboardButton('📊 وضعیت من')
@@ -115,113 +215,58 @@ def start(message):
     
     bot.send_message(message.chat.id, get_welcome_message(message.from_user), reply_markup=markup, parse_mode="Markdown")
 
-# ========== پنل مدیریت ==========
-@bot.message_handler(func=lambda m: m.text == '👑 پنل مدیریت' and m.from_user.id == ADMIN_ID)
-def admin_panel(m):
-    markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
-    markup.add('📊 آمار مدیریت', '📋 لیست VIPها', '🔴 خاموش/روشن', '📋 گزارش کاربران', '🔙 برگشت')
-    bot.reply_to(m, "👑 پنل مدیریت:", reply_markup=markup)
+# ========== وضعیت من ==========
+@bot.message_handler(func=lambda m: m.text == '📊 وضعیت من')
+def my_status(m):
+    user_id = m.chat.id
+    today_used = get_user_daily(user_id)
+    limit = get_daily_limit(user_id)
+    remaining = limit - today_used
+    vip_status = "⭐ VIP" if is_vip(user_id) else "👤 عادی"
+    last_use = get_user_last_use(user_id)
+    
+    status_text = f"""📊 **وضعیت شما:**
 
-# ========== لیست VIPها ==========
-@bot.message_handler(func=lambda m: m.text == '📋 لیست VIPها' and m.from_user.id == ADMIN_ID)
-def vip_list(m):
-    if not VIP_USERS:
-        bot.reply_to(m, "📋 لیست VIPها خالی هست.")
-        return
-    
-    text = "📋 **لیست VIPها:**\n\n"
-    for uid in VIP_USERS:
-        text += f"👤 `{uid}`\n"
-    text += f"\n👑 {CREATOR_USERNAME}"
-    
-    bot.reply_to(m, text, parse_mode="Markdown")
-
-# ========== آمار مدیریت ==========
-@bot.message_handler(func=lambda m: m.text == '📊 آمار مدیریت' and m.from_user.id == ADMIN_ID)
-def admin_stats(m):
-    active = len([x for x in active_attacks.values() if x])
-    total_users = len(user_daily)
-    today = datetime.now().date()
-    today_users = len([u for u, d in user_daily.items() if d.get('date') == today])
-    total_messages = sum(user_messages_count.values())
-    status = "✅ فعال" if bot_active else "❌ غیرفعال"
-    vip_count = len(VIP_USERS)
-    
-    msg = f"""📊 **آمار مدیریت:**
-    
-👤 کاربران کل: {total_users}
-📅 کاربران امروز: {today_users}
-⭐ VIPها: {vip_count}
-⚡ حملات فعال: {active}
-📨 کل پیام‌ها: {total_messages}
-🔰 وضعیت ربات: {status}
-👑 سازنده: {CREATOR_USERNAME}
+👤 کاربر: {m.from_user.first_name}
+{vip_status}
+📅 استفاده امروز: {today_used} بار
+✅ باقیمانده: {remaining} بار
+⚡ محدودیت روزانه: {limit} بار
 """
-    bot.reply_to(m, msg, parse_mode="Markdown")
-
-# ========== خاموش/روشن ==========
-@bot.message_handler(func=lambda m: m.text == '🔴 خاموش/روشن' and m.from_user.id == ADMIN_ID)
-def admin_toggle(m):
-    global bot_active
-    bot_active = not bot_active
-    status = "روشن" if bot_active else "خاموش"
-    bot.reply_to(m, f"✅ ربات {status} شد.")
-
-# ========== گزارش کاربران ==========
-@bot.message_handler(func=lambda m: m.text == '📋 گزارش کاربران' and m.from_user.id == ADMIN_ID)
-def admin_users(m):
-    report = "📋 **کاربران امروز:**\n\n"
-    today = datetime.now().date()
-    for uid, data in list(user_daily.items())[:10]:
-        if data.get('date') == today:
-            vip = "⭐" if is_vip(uid) else "👤"
-            report += f"{vip} `{uid}`: {data.get('count', 0)} حمله\n"
-    report += f"\n👑 {CREATOR_USERNAME}"
-    bot.reply_to(m, report, parse_mode="Markdown")
-
-# ========== برگشت ==========
-@bot.message_handler(func=lambda m: m.text == '🔙 برگشت' and m.from_user.id == ADMIN_ID)
-def admin_back(m):
-    start(m)
-
-# ========== ارتباط با سازنده ==========
-@bot.message_handler(func=lambda m: m.text == '📞 ارتباط با سازنده')
-def contact(m):
-    markup = types.ForceReply(selective=False)
-    msg = bot.reply_to(
-        m, 
-        f"📝 **پیامت رو بنویس، برات می‌فرستم برای سازنده:**\n\n👑 {CREATOR_USERNAME}",
-        reply_markup=markup,
-        parse_mode="Markdown"
-    )
-    user_states[m.chat.id] = ("waiting_for_contact", msg.message_id)
-
-@bot.message_handler(func=lambda m: user_states.get(m.chat.id) and user_states[m.chat.id][0] == "waiting_for_contact")
-def handle_contact_message(m):
-    state = user_states.get(m.chat.id)
-    if not state:
-        return
     
-    vip = "⭐ VIP" if is_vip(m.from_user.id) else "👤 عادی"
-    user_info = f"از: {m.from_user.first_name} (ID: {m.from_user.id})\nوضعیت: {vip}"
+    if user_id in active_attacks and active_attacks[user_id]:
+        status_text += "\n⚠️ **حمله در حال انجام هست!**"
+    else:
+        status_text += "\n✅ **آماده برای حمله جدیدی!**"
     
-    del user_states[m.chat.id]
+    if last_use:
+        time_diff = int(time.time() - last_use)
+        if time_diff < 120:
+            wait = 120 - time_diff
+            status_text += f"\n⏳ زمان انتظار تا حمله بعد: {wait} ثانیه"
     
-    bot.send_message(
-        ADMIN_ID,
-        f"📨 **پیام جدید از کاربر:**\n\n{user_info}\n\n📝 {m.text}\n\n👑 {CREATOR_USERNAME}",
-        parse_mode="Markdown"
-    )
+    status_text += f"\n\n👑 {CREATOR_USERNAME}"
     
-    bot.reply_to(m, f"✅ پیامت با موفقیت ارسال شد. به زودی پاسخ می‌دم.\n👑 {CREATOR_USERNAME}")
+    bot.reply_to(m, status_text, parse_mode="Markdown")
 
 # ========== آمار کلی ==========
 @bot.message_handler(func=lambda m: m.text == '📈 آمار کلی')
 def global_stats(m):
-    total_users = len(user_daily)
-    today = datetime.now().date()
-    today_users = len([u for u, d in user_daily.items() if d.get('date') == today])
-    total_messages = sum(user_messages_count.values())
+    conn = sqlite3.connect('bot_data.db')
+    c = conn.cursor()
+    
+    c.execute("SELECT COUNT(*) FROM user_daily")
+    total_users = c.fetchone()[0]
+    
+    today = datetime.now().date().isoformat()
+    c.execute("SELECT COUNT(*) FROM user_daily WHERE date = ?", (today,))
+    today_users = c.fetchone()[0]
+    
+    c.execute("SELECT SUM(count) FROM user_messages")
+    total_messages = c.fetchone()[0] or 0
+    
+    conn.close()
+    
     vip_count = len(VIP_USERS)
     
     msg = f"""📊 **آمار کلی ربات:**
@@ -237,44 +282,6 @@ def global_stats(m):
     
     bot.reply_to(m, msg, parse_mode="Markdown")
 
-# ========== وضعیت من ==========
-@bot.message_handler(func=lambda m: m.text == '📊 وضعیت من')
-def my_status(m):
-    user_id = m.chat.id
-    limit = get_daily_limit(user_id)
-    vip_status = "⭐ VIP" if is_vip(user_id) else "👤 عادی"
-    
-    today_used = 0
-    if user_id in user_daily and user_daily[user_id].get('date') == datetime.now().date():
-        today_used = user_daily[user_id].get('count', 0)
-    
-    remaining = limit - today_used
-    
-    status_text = f"""📊 **وضعیت شما:**
-
-👤 کاربر: {m.from_user.first_name}
-{vip_status}
-📅 امروز استفاده کردی: {today_used} بار
-✅ باقیمانده امروز: {remaining} بار
-⚡ محدودیت روزانه: {limit} بار
-"""
-    
-    if user_id in active_attacks and active_attacks[user_id]:
-        status_text += "\n⚠️ **حمله در حال انجام هست!**"
-    else:
-        status_text += "\n✅ **آماده برای حمله جدیدی!**"
-    
-    if user_id in user_last_use:
-        last_time = user_last_use[user_id]
-        time_diff = int(time.time() - last_time)
-        if time_diff < 120:
-            wait = 120 - time_diff
-            status_text += f"\n⏳ زمان انتظار تا حمله بعد: {wait} ثانیه"
-    
-    status_text += f"\n\n👑 {CREATOR_USERNAME}"
-    
-    bot.reply_to(m, status_text, parse_mode="Markdown")
-
 # ========== حمله جدید ==========
 @bot.message_handler(func=lambda m: m.text == '🚀 حمله جدید')
 def new_attack(m):
@@ -287,14 +294,14 @@ def new_attack(m):
         return
     
     # بررسی محدودیت روزانه
-    if user_id in user_daily and user_daily[user_id].get('date') == datetime.now().date():
-        if user_daily[user_id].get('count', 0) >= limit and user_id != ADMIN_ID:
-            bot.reply_to(m, f"⚠️ محدودیت روزانه تموم شد! فردا {limit} بار دیگه می‌تونی استفاده کنی.")
-            return
+    if not check_daily_limit(user_id) and user_id != ADMIN_ID:
+        bot.reply_to(m, f"⚠️ محدودیت روزانه تموم شد! فردا {limit} بار دیگه می‌تونی استفاده کنی.")
+        return
     
     # بررسی فاصله زمانی
-    if user_id in user_last_use:
-        time_diff = int(time.time() - user_last_use[user_id])
+    last_use = get_user_last_use(user_id)
+    if last_use:
+        time_diff = int(time.time() - last_use)
         if time_diff < 120 and user_id != ADMIN_ID:
             remaining = 120 - time_diff
             bot.reply_to(m, f"⏳ {remaining} ثانیه صبر کن بین هر حمله.")
@@ -306,7 +313,9 @@ def new_attack(m):
         return
     
     user_states[user_id] = "waiting_for_phone"
-    bot.reply_to(m, "📱 **شماره موبایل رو بفرست:**\n(مثلاً 09123456789)")
+    today_used = get_user_daily(user_id)
+    remaining = limit - today_used
+    bot.reply_to(m, f"📱 **شماره موبایل رو بفرست:**\n(مثلاً 09123456789)\n📊 باقیمانده امروز: {remaining} بار")
 
 # ========== دریافت شماره ==========
 @bot.message_handler(func=lambda m: user_states.get(m.chat.id) == "waiting_for_phone")
@@ -319,17 +328,15 @@ def get_phone(m):
         return
     
     del user_states[user_id]
-    user_last_use[user_id] = time.time()
+    set_user_last_use(user_id, int(time.time()))
     active_attacks[user_id] = True
     
     # ثبت آمار
-    if user_id in user_daily and user_daily[user_id].get('date') == datetime.now().date():
-        user_daily[user_id]['count'] += 1
-    else:
-        user_daily[user_id] = {'date': datetime.now().date(), 'count': 1}
+    increment_user_daily(user_id)
     
+    today_used = get_user_daily(user_id)
     limit = get_daily_limit(user_id)
-    remaining = limit - user_daily[user_id]['count']
+    remaining = limit - today_used
     
     msg = bot.reply_to(
         m, 
@@ -382,18 +389,130 @@ def stop_attack(m):
     else:
         bot.reply_to(m, "❌ حمله فعالی نیست.")
 
+# ========== پنل مدیریت ==========
+@bot.message_handler(func=lambda m: m.text == '👑 پنل مدیریت' and m.from_user.id == ADMIN_ID)
+def admin_panel(m):
+    markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
+    markup.add('📊 آمار مدیریت', '📋 لیست VIPها', '🔴 خاموش/روشن', '📋 گزارش کاربران', '🔙 برگشت')
+    bot.reply_to(m, "👑 پنل مدیریت:", reply_markup=markup)
+
+@bot.message_handler(func=lambda m: m.text == '📊 آمار مدیریت' and m.from_user.id == ADMIN_ID)
+def admin_stats(m):
+    conn = sqlite3.connect('bot_data.db')
+    c = conn.cursor()
+    
+    c.execute("SELECT COUNT(*) FROM user_daily")
+    total_users = c.fetchone()[0]
+    
+    today = datetime.now().date().isoformat()
+    c.execute("SELECT COUNT(*) FROM user_daily WHERE date = ?", (today,))
+    today_users = c.fetchone()[0]
+    
+    c.execute("SELECT SUM(count) FROM user_messages")
+    total_messages = c.fetchone()[0] or 0
+    
+    c.execute("SELECT COUNT(*) FROM user_daily WHERE count > 0")
+    active_users = c.fetchone()[0]
+    
+    conn.close()
+    
+    active_attacks_count = len([x for x in active_attacks.values() if x])
+    status = "✅ فعال" if bot_active else "❌ غیرفعال"
+    vip_count = len(VIP_USERS)
+    
+    msg = f"""📊 **آمار مدیریت:**
+    
+👤 کاربران کل: {total_users}
+📅 کاربران امروز: {today_users}
+⚡ کاربران فعال: {active_users}
+⭐ VIPها: {vip_count}
+⚡ حملات هم‌اکنون: {active_attacks_count}
+📨 کل پیام‌ها: {total_messages}
+🔰 وضعیت ربات: {status}
+👑 سازنده: {CREATOR_USERNAME}
+"""
+    bot.reply_to(m, msg, parse_mode="Markdown")
+
+@bot.message_handler(func=lambda m: m.text == '📋 لیست VIPها' and m.from_user.id == ADMIN_ID)
+def vip_list(m):
+    if not VIP_USERS:
+        bot.reply_to(m, "📋 لیست VIPها خالی هست.")
+        return
+    
+    text = "📋 **لیست VIPها:**\n\n"
+    for uid in VIP_USERS:
+        text += f"👤 `{uid}`\n"
+    text += f"\n👑 {CREATOR_USERNAME}"
+    bot.reply_to(m, text, parse_mode="Markdown")
+
+@bot.message_handler(func=lambda m: m.text == '🔴 خاموش/روشن' and m.from_user.id == ADMIN_ID)
+def admin_toggle(m):
+    global bot_active
+    bot_active = not bot_active
+    status = "روشن" if bot_active else "خاموش"
+    bot.reply_to(m, f"✅ ربات {status} شد.")
+
+@bot.message_handler(func=lambda m: m.text == '📋 گزارش کاربران' and m.from_user.id == ADMIN_ID)
+def admin_users(m):
+    conn = sqlite3.connect('bot_data.db')
+    c = conn.cursor()
+    today = datetime.now().date().isoformat()
+    
+    c.execute('''SELECT user_id, count FROM user_daily 
+                 WHERE date = ? ORDER BY count DESC LIMIT 10''', (today,))
+    users = c.fetchall()
+    conn.close()
+    
+    report = "📋 **کاربران برتر امروز:**\n\n"
+    for uid, count in users:
+        vip = "⭐" if is_vip(uid) else "👤"
+        report += f"{vip} `{uid}`: {count} حمله\n"
+    report += f"\n👑 {CREATOR_USERNAME}"
+    bot.reply_to(m, report, parse_mode="Markdown")
+
+@bot.message_handler(func=lambda m: m.text == '🔙 برگشت' and m.from_user.id == ADMIN_ID)
+def admin_back(m):
+    start(m)
+
+# ========== ارتباط با سازنده ==========
+@bot.message_handler(func=lambda m: m.text == '📞 ارتباط با سازنده')
+def contact(m):
+    markup = types.ForceReply(selective=False)
+    msg = bot.reply_to(
+        m, 
+        f"📝 **پیامت رو بنویس، برات می‌فرستم برای سازنده:**\n\n👑 {CREATOR_USERNAME}",
+        reply_markup=markup,
+        parse_mode="Markdown"
+    )
+    user_states[m.chat.id] = ("waiting_for_contact", msg.message_id)
+
+@bot.message_handler(func=lambda m: user_states.get(m.chat.id) and user_states[m.chat.id][0] == "waiting_for_contact")
+def handle_contact_message(m):
+    state = user_states.get(m.chat.id)
+    if not state:
+        return
+    
+    vip = "⭐ VIP" if is_vip(m.from_user.id) else "👤 عادی"
+    user_info = f"از: {m.from_user.first_name} (ID: {m.from_user.id})\nوضعیت: {vip}"
+    
+    del user_states[m.chat.id]
+    
+    bot.send_message(
+        ADMIN_ID,
+        f"📨 **پیام جدید از کاربر:**\n\n{user_info}\n\n📝 {m.text}\n\n👑 {CREATOR_USERNAME}",
+        parse_mode="Markdown"
+    )
+    
+    bot.reply_to(m, f"✅ پیامت با موفقیت ارسال شد. به زودی پاسخ می‌دم.\n👑 {CREATOR_USERNAME}")
+
 # ========== پیام‌های ناشناخته ==========
 @bot.message_handler(func=lambda m: True)
 def fallback(m):
-    # اگه کاربر در حالت انتظار برای شماره هست، نباید اینجا بیاد
     if user_states.get(m.chat.id) == "waiting_for_phone":
         return
-    
-    # اگه کاربر در حالت انتظار برای پیام به سازنده هست، نباید اینجا بیاد
     if user_states.get(m.chat.id) and user_states[m.chat.id][0] == "waiting_for_contact":
         return
     
-    # اگه پیام یکی از دکمه‌های معتبر هست، قبلاً هندلر مخصوص خودش اجرا شده
     valid_buttons = ['🚀 حمله جدید', '📊 وضعیت من', '📈 آمار کلی', '⛔ توقف حمله', 
                      '📞 ارتباط با سازنده', '👑 پنل مدیریت', '📊 آمار مدیریت', 
                      '📋 لیست VIPها', '🔴 خاموش/روشن', '📋 گزارش کاربران', '🔙 برگشت']
@@ -417,14 +536,9 @@ def webhook():
 
 @app.route('/setwebhook')
 def set_webhook():
-    # آدرس برنامه روی Render
     webhook_url = f"https://top-topye.onrender.com/webhook"
-    
-    # پاک کردن webhook قبلی
     bot.remove_webhook()
     time.sleep(1)
-    
-    # ست کردن webhook جدید
     success = bot.set_webhook(url=webhook_url)
     
     if success:
@@ -438,13 +552,15 @@ def index():
 
 # ========== اجرا ==========
 if __name__ == "__main__":
-    print("🤖 ربات با Webhook راه‌اندازی شد")
+    # ایجاد دیتابیس
+    init_database()
+    
+    print("🤖 ربات با SQLite راه‌اندازی شد")
     print(f"👑 سازنده: {CREATOR_USERNAME}")
     print(f"⭐ تعداد VIPها: {len(VIP_USERS)}")
     print(f"📢 کانال: {REQUIRED_CHANNEL}")
     print(f"👥 گروه 1: {REQUIRED_GROUP1}")
     print(f"👥 گروه 2: {REQUIRED_GROUP2}")
     
-    # پورت مورد نظر Render
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port)
