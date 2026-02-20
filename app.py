@@ -12,12 +12,12 @@ import hashlib
 from flask import Flask, request
 
 # ========== تنظیمات اصلی (از متغیر محیطی) ==========
-TOKEN = os.environ.get("BOT_TOKEN", "8295266586:AAHGlLZC0Ha4-V1AOfsnJUd8xphqrVX5kBs")
+TOKEN = os.environ.get("BOT_TOKEN", "8507788572:AAFWWC0hfDdg-MNuXh1VWe8S89v0cAWgI84")
 ADMIN_IDS = [8226091292, 8503492459]
 LIARA_API = os.environ.get("LIARA_API", "https://top-topye.liara.run/api/send_sms")
 
 # ========== تعریف بات (قبل از هر چیز) ==========
-bot = telebot.TeleBot(TOKEN)
+bot = telebot.TeleBot(TOKEN, threaded=False)  # ✅ threaded=False برای جلوگیری از Conflict
 
 # ========== کانال و گروه‌های اجباری ==========
 REQUIRED_CHANNELS = [
@@ -631,7 +631,6 @@ def keep_alive():
     """هر ۱۰ دقیقه یه بار به خودش پینگ می‌زنه"""
     while True:
         try:
-            # ✅ آدرس جدید با اسم top-topy-bot
             requests.get("https://top-topy-bot.onrender.com", timeout=10)
             print("✅ پینگ ارسال شد - ربات بیدار موند")
         except Exception as e:
@@ -652,7 +651,6 @@ def webhook():
 
 @app.route('/setwebhook')
 def set_webhook():
-    # ✅ آدرس Webhook جدید با اسم top-topy-bot
     webhook_url = f"https://top-topy-bot.onrender.com/webhook"
     bot.remove_webhook()
     time.sleep(1)
@@ -677,6 +675,5 @@ if __name__ == "__main__":
     print("✅ شماره‌های مسدود شده به صورت هش ذخیره شده‌اند")
     print("✅ تابع بیدار ماندن فعال شد - ربات هیچوقت نمیخوابه")
     
-    # ✅ پورت 10000 برای رندر
     port = int(os.environ.get('PORT', 10000))
     app.run(host='0.0.0.0', port=port)
