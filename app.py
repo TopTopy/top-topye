@@ -569,6 +569,7 @@ def handle_admin_edit(m):
 @bot.message_handler(func=lambda m: m.text == '🔙 برگشت' and is_admin(m.from_user.id))
 def admin_back(m):
     start(m)
+
 # ========== ارتباط با سازنده ==========
 @bot.message_handler(func=lambda m: m.text == '📞 ارتباط با سازنده')
 def contact(m):
@@ -650,7 +651,8 @@ def webhook():
 
 @app.route('/setwebhook')
 def set_webhook():
-    webhook_url = f"https://top-topye.onrender.com/webhook"
+    # ✅ اصلاح شده: آدرس جدید top-topye-1
+    webhook_url = f"https://top-topye-1.onrender.com/webhook"
     bot.remove_webhook()
     time.sleep(1)
     success = bot.set_webhook(url=webhook_url)
