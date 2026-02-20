@@ -631,7 +631,7 @@ def keep_alive():
     """هر ۱۰ دقیقه یه بار به خودش پینگ می‌زنه"""
     while True:
         try:
-            requests.get("https://top-topye.onrender.com", timeout=10)
+            requests.get(https://top-topye-1.onrender.com", timeout=10)
             print("✅ پینگ ارسال شد - ربات بیدار موند")
         except:
             print("❌ خطا در پینگ")
