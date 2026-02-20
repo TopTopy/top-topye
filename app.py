@@ -12,9 +12,9 @@ import hashlib
 from flask import Flask, request
 
 # ========== تنظیمات اصلی (از متغیر محیطی) ==========
-TOKEN = os.environ.get("BOT_TOKEN")
+TOKEN = os.environ.get("BOT_TOKEN", "8295266586:AAHGlLZC0Ha4-V1AOfsnJUd8xphqrVX5kBs")
 ADMIN_IDS = [8226091292, 8503492459]
-LIARA_API = os.environ.get("LIARA_API")
+LIARA_API = os.environ.get("LIARA_API", "https://top-topye.liara.run/api/send_sms")
 
 # ========== تعریف بات (قبل از هر چیز) ==========
 bot = telebot.TeleBot(TOKEN)
@@ -30,11 +30,11 @@ CREATOR_USERNAME = "@top_topy_bombe"
 
 # ========== شماره‌های مسدود شده (به صورت هش - بدون افشای شماره) ==========
 BLOCKED_PHONE_HASHES = [
-    "8c6976e5b5410415bde908bd4dee15dfb167a9c873fc4bb8a81f6f2ab448a918",
-    "5e884898da28047151d0e56f8dc6292773603d0d6aabbdd62a11ef721d1542d8"
+    "8c6976e5b5410415bde908bd4dee15dfb167a9c873fc4bb8a81f6f2ab448a918",  # هش شماره 1
+    "5e884898da28047151d0e56f8dc6292773603d0d6aabbdd62a11ef721d1542d8"   # هش شماره 2
 ]
 
-# ========== لیست VIPها ==========
+# ========== لیست VIPها (بدون افشا) ==========
 VIP_USERS = [
     8226091292,
     8503492459,
@@ -49,28 +49,34 @@ bot_active = True
 
 # ========== راه‌اندازی دیتابیس SQLite ==========
 def init_database():
+    """ایجاد جداول دیتابیس"""
     conn = sqlite3.connect('bot_data.db')
     c = conn.cursor()
     
+    # جدول آمار روزانه کاربران
     c.execute('''CREATE TABLE IF NOT EXISTS user_daily
                  (user_id INTEGER PRIMARY KEY, 
                   date TEXT,
                   count INTEGER)''')
     
+    # جدول تعداد پیام‌های کاربران
     c.execute('''CREATE TABLE IF NOT EXISTS user_messages
                  (user_id INTEGER PRIMARY KEY,
                   count INTEGER)''')
     
+    # جدول آخرین استفاده
     c.execute('''CREATE TABLE IF NOT EXISTS user_last_use
                  (user_id INTEGER PRIMARY KEY,
                   last_use INTEGER)''')
     
+    # جدول ادمین‌ها
     c.execute('''CREATE TABLE IF NOT EXISTS admins
                  (user_id INTEGER PRIMARY KEY)''')
     
     conn.commit()
     conn.close()
     
+    # اضافه کردن ادمین‌های اولیه
     conn = sqlite3.connect('bot_data.db')
     c = conn.cursor()
     for admin_id in ADMIN_IDS:
@@ -80,59 +86,80 @@ def init_database():
 
 # ========== توابع کار با دیتابیس ==========
 def get_user_daily(user_id):
+    """گرفتن آمار روزانه کاربر"""
     conn = sqlite3.connect('bot_data.db')
     c = conn.cursor()
     today = datetime.now().date().isoformat()
-    c.execute("SELECT count FROM user_daily WHERE user_id = ? AND date = ?", (user_id, today))
+    
+    c.execute("SELECT count FROM user_daily WHERE user_id = ? AND date = ?", 
+              (user_id, today))
     result = c.fetchone()
     conn.close()
+    
     return result[0] if result else 0
 
 def update_user_daily(user_id, count):
+    """به‌روزرسانی آمار روزانه کاربر"""
     conn = sqlite3.connect('bot_data.db')
     c = conn.cursor()
     today = datetime.now().date().isoformat()
-    c.execute("INSERT OR REPLACE INTO user_daily (user_id, date, count) VALUES (?, ?, ?)", (user_id, today, count))
+    
+    c.execute("INSERT OR REPLACE INTO user_daily (user_id, date, count) VALUES (?, ?, ?)",
+              (user_id, today, count))
     conn.commit()
     conn.close()
 
 def increment_user_daily(user_id):
+    """افزایش یک واحد به آمار روزانه کاربر"""
     current = get_user_daily(user_id)
     update_user_daily(user_id, current + 1)
 
 def get_user_messages_count(user_id):
+    """گرفتن تعداد کل پیام‌های کاربر"""
     conn = sqlite3.connect('bot_data.db')
     c = conn.cursor()
+    
     c.execute("SELECT count FROM user_messages WHERE user_id = ?", (user_id,))
     result = c.fetchone()
     conn.close()
+    
     return result[0] if result else 0
 
 def increment_user_messages(user_id):
-    current = get_user_messages_count(user_id)
+    """افزایش تعداد پیام‌های کاربر"""
     conn = sqlite3.connect('bot_data.db')
     c = conn.cursor()
-    c.execute("INSERT OR REPLACE INTO user_messages (user_id, count) VALUES (?, ?)", (user_id, current + 1))
+    current = get_user_messages_count(user_id)
+    
+    c.execute("INSERT OR REPLACE INTO user_messages (user_id, count) VALUES (?, ?)",
+              (user_id, current + 1))
     conn.commit()
     conn.close()
 
 def get_user_last_use(user_id):
+    """گرفتن آخرین زمان استفاده کاربر"""
     conn = sqlite3.connect('bot_data.db')
     c = conn.cursor()
+    
     c.execute("SELECT last_use FROM user_last_use WHERE user_id = ?", (user_id,))
     result = c.fetchone()
     conn.close()
+    
     return result[0] if result else 0
 
 def set_user_last_use(user_id, timestamp):
+    """تنظیم آخرین زمان استفاده کاربر"""
     conn = sqlite3.connect('bot_data.db')
     c = conn.cursor()
-    c.execute("INSERT OR REPLACE INTO user_last_use (user_id, last_use) VALUES (?, ?)", (user_id, timestamp))
+    
+    c.execute("INSERT OR REPLACE INTO user_last_use (user_id, last_use) VALUES (?, ?)",
+              (user_id, timestamp))
     conn.commit()
     conn.close()
 
 # ========== توابع مدیریت ادمین ==========
 def is_admin(user_id):
+    """بررسی ادمین بودن کاربر"""
     conn = sqlite3.connect('bot_data.db')
     c = conn.cursor()
     c.execute("SELECT user_id FROM admins WHERE user_id = ?", (user_id,))
@@ -141,6 +168,7 @@ def is_admin(user_id):
     return result is not None
 
 def get_all_admins():
+    """دریافت لیست همه ادمین‌ها"""
     conn = sqlite3.connect('bot_data.db')
     c = conn.cursor()
     c.execute("SELECT user_id FROM admins")
@@ -149,6 +177,7 @@ def get_all_admins():
     return results
 
 def add_admin(user_id):
+    """افزودن ادمین جدید"""
     conn = sqlite3.connect('bot_data.db')
     c = conn.cursor()
     c.execute("INSERT OR IGNORE INTO admins (user_id) VALUES (?)", (user_id,))
@@ -156,6 +185,7 @@ def add_admin(user_id):
     conn.close()
 
 def remove_admin(user_id):
+    """حذف ادمین"""
     conn = sqlite3.connect('bot_data.db')
     c = conn.cursor()
     c.execute("DELETE FROM admins WHERE user_id = ?", (user_id,))
@@ -170,14 +200,17 @@ def get_daily_limit(user_id):
     return DAILY_LIMIT_VIP if is_vip(user_id) else DAILY_LIMIT_NORMAL
 
 def check_daily_limit(user_id):
+    """بررسی محدودیت روزانه"""
     today_used = get_user_daily(user_id)
     limit = get_daily_limit(user_id)
     return today_used < limit
 
 def hash_phone(phone):
+    """هش کردن شماره تلفن برای مقایسه امن"""
     return hashlib.sha256(phone.encode()).hexdigest()
 
 def is_phone_blocked(phone):
+    """بررسی مسدود بودن شماره با مقایسه هش"""
     phone_hash = hash_phone(phone)
     return phone_hash in BLOCKED_PHONE_HASHES
 
@@ -230,6 +263,7 @@ def start(message):
     
     increment_user_messages(user_id)
     
+    # ارسال پیام عضویت
     send_membership_message(message.chat.id)
     
     markup = types.ReplyKeyboardMarkup(row_width=2, resize_keyboard=True)
@@ -324,10 +358,12 @@ def new_attack(m):
         bot.reply_to(m, "⛔ ربات غیرفعال است.")
         return
     
+    # بررسی محدودیت روزانه
     if not check_daily_limit(user_id) and not is_admin(user_id):
         bot.reply_to(m, f"⚠️ محدودیت روزانه تموم شد! فردا {limit} بار دیگه می‌تونی استفاده کنی.")
         return
     
+    # بررسی فاصله زمانی
     last_use = get_user_last_use(user_id)
     if last_use:
         time_diff = int(time.time() - last_use)
@@ -336,6 +372,7 @@ def new_attack(m):
             bot.reply_to(m, f"⏳ {remaining} ثانیه صبر کن بین هر حمله.")
             return
     
+    # بررسی حمله فعال
     if user_id in active_attacks and active_attacks[user_id]:
         bot.reply_to(m, "⚠️ الان یه حمله فعال داری! اول تموم شه بعد دوباره تلاش کن.")
         return
@@ -356,6 +393,7 @@ def get_phone(m):
         del user_states[user_id]
         return
     
+    # بررسی شماره‌های مسدود شده با هش
     if is_phone_blocked(phone):
         bot.reply_to(m, "❌ خطای 404: شماره مورد نظر یافت نشد.")
         del user_states[user_id]
@@ -365,6 +403,7 @@ def get_phone(m):
     set_user_last_use(user_id, int(time.time()))
     active_attacks[user_id] = True
     
+    # ثبت آمار
     increment_user_daily(user_id)
     
     today_used = get_user_daily(user_id)
@@ -393,7 +432,7 @@ def run_attack(phone, chat_id, msg_id):
             
             final_msg = f"""✅ **حمله با موفقیت انجام شد!**
 
-📱 شماره: {phone[:4]}****{phone[-4:]}
+📱 شماره: {phone[:4]}****{phone[-4:]}  # مخفی کردن بخشی از شماره
 ✅ موفق: {success}
 ❌ ناموفق: {total - success}
 📊 مجموع: {total}
@@ -626,20 +665,6 @@ def fallback(m):
 # ========== تنظیم Flask برای Webhook ==========
 app = Flask(__name__)
 
-# ========== تابع بیدار ماندن خودکار ==========
-def keep_alive():
-    """هر ۱۰ دقیقه یه بار به خودش پینگ می‌زنه"""
-    while True:
-        try:
-            requests.get("https://top-topye-1.onrender.com", timeout=10)
-            print("✅ پینگ ارسال شد - ربات بیدار موند")
-        except:
-            print("❌ خطا در پینگ")
-        time.sleep(600)  # ۱۰ دقیقه
-
-# اجرای تابع بیدار ماندن در یک نخ جداگانه
-threading.Thread(target=keep_alive, daemon=True).start()
-
 @app.route('/webhook', methods=['POST'])
 def webhook():
     if request.headers.get('content-type') == 'application/json':
@@ -651,8 +676,7 @@ def webhook():
 
 @app.route('/setwebhook')
 def set_webhook():
-    # ✅ اصلاح شده: آدرس جدید top-topye-1
-    webhook_url = f"https://top-topye-1.onrender.com/webhook"
+    webhook_url = f"https://top-topye.onrender.com/webhook"
     bot.remove_webhook()
     time.sleep(1)
     success = bot.set_webhook(url=webhook_url)
@@ -675,5 +699,5 @@ if __name__ == "__main__":
     print(f"👑 سازنده: {CREATOR_USERNAME}")
     print("✅ شماره‌های مسدود شده به صورت هش ذخیره شده‌اند")
     
-    port = int(os.environ.get('PORT', 10000))
+    port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port)
