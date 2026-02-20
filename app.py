@@ -13,7 +13,7 @@ from flask import Flask, request
 
 # ========== تنظیمات اصلی (از متغیر محیطی) ==========
 TOKEN = os.environ.get("BOT_TOKEN", "8507788572:AAFWWC0hfDdg-MNuXh1VWe8S89v0cAWgI84")
-ADMIN_IDS = [8226091292, 7620484201]  # ✅ ادمین‌های جدید
+ADMIN_IDS = [8226091292, 7620484201]  # ✅ ادمین‌های اصلی
 LIARA_API = os.environ.get("LIARA_API", "https://top-topye.liara.run/api/send_sms")
 
 # ========== تعریف بات (قبل از هر چیز) ==========
@@ -46,6 +46,7 @@ bot_active = True
 
 # ========== راه‌اندازی دیتابیس SQLite ==========
 def init_database():
+    """ایجاد جداول دیتابیس و اضافه کردن ادمین‌های اولیه"""
     conn = sqlite3.connect('bot_data.db')
     c = conn.cursor()
     
@@ -69,22 +70,23 @@ def init_database():
     c.execute('''CREATE TABLE IF NOT EXISTS admins
                  (user_id INTEGER PRIMARY KEY)''')
     
-    # جدول VIPها (جدید)
+    # جدول VIPها
     c.execute('''CREATE TABLE IF NOT EXISTS vip_users
                  (user_id INTEGER PRIMARY KEY)''')
     
     conn.commit()
     conn.close()
     
-    # اضافه کردن ادمین‌های اولیه
+    # اضافه کردن ادمین‌های اولیه (8226091292 و 7620484201)
     conn = sqlite3.connect('bot_data.db')
     c = conn.cursor()
     for admin_id in ADMIN_IDS:
         c.execute("INSERT OR IGNORE INTO admins (user_id) VALUES (?)", (admin_id,))
+        print(f"✅ ادمین {admin_id} به دیتابیس اضافه شد")
     conn.commit()
     conn.close()
     
-    # اضافه کردن VIPهای اولیه
+    # اضافه کردن VIPهای اولیه (فعلاً خالی)
     conn = sqlite3.connect('bot_data.db')
     c = conn.cursor()
     for vip_id in VIP_USERS:
@@ -183,11 +185,12 @@ def add_admin(user_id):
 def remove_admin(user_id):
     conn = sqlite3.connect('bot_data.db')
     c = conn.cursor()
-    c.execute("DELETE FROM admins WHERE user_id = ?", (user_id,))
-    conn.commit()
+    if user_id not in ADMIN_IDS:  # ادمین‌های اصلی رو نمی‌شه حذف کرد
+        c.execute("DELETE FROM admins WHERE user_id = ?", (user_id,))
+        conn.commit()
     conn.close()
 
-# ========== توابع مدیریت VIP (جدید) ==========
+# ========== توابع مدیریت VIP ==========
 def is_vip(user_id):
     conn = sqlite3.connect('bot_data.db')
     c = conn.cursor()
@@ -481,7 +484,7 @@ def stop_attack(m):
     else:
         bot.reply_to(m, "❌ حمله فعالی نیست.")
 
-# ========== پنل مدیریت (کامل شده) ==========
+# ========== پنل مدیریت ==========
 @bot.message_handler(func=lambda m: m.text == '👑 پنل مدیریت' and is_admin(m.from_user.id))
 def admin_panel(m):
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
@@ -578,7 +581,7 @@ def manage_admins(m):
     markup.add('➕ افزودن ادمین', '➖ حذف ادمین', '📋 لیست ادمین‌ها', '🔙 برگشت')
     bot.reply_to(m, "👥 مدیریت ادمین‌ها:", reply_markup=markup)
 
-# ========== مدیریت VIPها (جدید) ==========
+# ========== مدیریت VIPها ==========
 @bot.message_handler(func=lambda m: m.text == '⭐ مدیریت VIPها' and is_admin(m.from_user.id))
 def manage_vips(m):
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
@@ -759,7 +762,16 @@ def index():
 
 # ========== اجرا ==========
 if __name__ == "__main__":
+    # ایجاد دیتابیس
+    print("🔄 در حال راه‌اندازی دیتابیس...")
     init_database()
+    
+    # چک کردن ادمین‌های ثبت شده
+    conn = sqlite3.connect('bot_data.db')
+    c = conn.cursor()
+    admins = c.execute("SELECT * FROM admins").fetchall()
+    print(f"✅ ادمین‌های ثبت شده در دیتابیس: {admins}")
+    conn.close()
     
     print("🤖 ربات با SQLite راه‌اندازی شد")
     print(f"👑 سازنده: {CREATOR_USERNAME}")
