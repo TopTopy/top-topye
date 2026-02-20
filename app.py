@@ -569,7 +569,6 @@ def handle_admin_edit(m):
 @bot.message_handler(func=lambda m: m.text == '🔙 برگشت' and is_admin(m.from_user.id))
 def admin_back(m):
     start(m)
-
 # ========== ارتباط با سازنده ==========
 @bot.message_handler(func=lambda m: m.text == '📞 ارتباط با سازنده')
 def contact(m):
