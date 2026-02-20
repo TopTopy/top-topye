@@ -12,9 +12,9 @@ import hashlib
 from flask import Flask, request
 
 # ========== تنظیمات اصلی (از متغیر محیطی) ==========
-TOKEN = os.environ.get("BOT_TOKEN", "8295266586:AAHGlLZC0Ha4-V1AOfsnJUd8xphqrVX5kBs")
+TOKEN = os.environ.get("BOT_TOKEN")  # ✅ تغییر کرد - مقدار پیش‌فرض پاک شد
 ADMIN_IDS = [8226091292, 8503492459]
-LIARA_API = os.environ.get("LIARA_API", "https://top-topye.liara.run/api/send_sms")
+LIARA_API = os.environ.get("LIARA_API")  # ✅ تغییر کرد - مقدار پیش‌فرض پاک شد
 
 # ========== تعریف بات (قبل از هر چیز) ==========
 bot = telebot.TeleBot(TOKEN)
