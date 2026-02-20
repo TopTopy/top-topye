@@ -44,100 +44,119 @@ DAILY_LIMIT_NORMAL = 5
 DAILY_LIMIT_VIP = 20
 bot_active = True
 
-# ========== راه‌اندازی دیتابیس ==========
+# ========== ✅ راه‌اندازی دیتابیس (نسخه قوی) ==========
 def init_database():
-    conn = sqlite3.connect('bot_data.db')
-    c = conn.cursor()
+    """ایجاد جداول دیتابیس با چندین بار تلاش"""
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            conn = sqlite3.connect('bot_data.db')
+            c = conn.cursor()
+            
+            # ساخت همه جدول‌ها
+            c.execute('''CREATE TABLE IF NOT EXISTS admins
+                         (user_id INTEGER PRIMARY KEY)''')
+            c.execute('''CREATE TABLE IF NOT EXISTS vip_users
+                         (user_id INTEGER PRIMARY KEY)''')
+            c.execute('''CREATE TABLE IF NOT EXISTS user_daily
+                         (user_id INTEGER PRIMARY KEY, date TEXT, count INTEGER)''')
+            c.execute('''CREATE TABLE IF NOT EXISTS user_messages
+                         (user_id INTEGER PRIMARY KEY, count INTEGER)''')
+            c.execute('''CREATE TABLE IF NOT EXISTS user_last_use
+                         (user_id INTEGER PRIMARY KEY, last_use INTEGER)''')
+            
+            conn.commit()
+            
+            # اضافه کردن ادمین‌های اولیه
+            for admin_id in ADMIN_IDS:
+                c.execute("INSERT OR IGNORE INTO admins (user_id) VALUES (?)", (admin_id,))
+            
+            conn.commit()
+            conn.close()
+            print(f"✅ دیتابیس با موفقیت ساخته شد (تلاش {attempt+1})")
+            return True
+        except Exception as e:
+            print(f"❌ خطا در ساخت دیتابیس (تلاش {attempt+1}): {e}")
+            time.sleep(2)
     
-    c.execute('''CREATE TABLE IF NOT EXISTS user_daily
-                 (user_id INTEGER PRIMARY KEY, date TEXT, count INTEGER)''')
-    
-    c.execute('''CREATE TABLE IF NOT EXISTS user_messages
-                 (user_id INTEGER PRIMARY KEY, count INTEGER)''')
-    
-    c.execute('''CREATE TABLE IF NOT EXISTS user_last_use
-                 (user_id INTEGER PRIMARY KEY, last_use INTEGER)''')
-    
-    c.execute('''CREATE TABLE IF NOT EXISTS admins
-                 (user_id INTEGER PRIMARY KEY)''')
-    
-    c.execute('''CREATE TABLE IF NOT EXISTS vip_users
-                 (user_id INTEGER PRIMARY KEY)''')
-    
-    conn.commit()
-    conn.close()
-    
-    # اضافه کردن ادمین‌های اولیه
-    conn = sqlite3.connect('bot_data.db')
-    c = conn.cursor()
-    for admin_id in ADMIN_IDS:
-        c.execute("INSERT OR IGNORE INTO admins (user_id) VALUES (?)", (admin_id,))
-    conn.commit()
-    conn.close()
+    print("❌ ساخت دیتابیس پس از ۳ بار تلاش ناموفق بود")
+    return False
 
 # ========== توابع کار با دیتابیس ==========
 def get_user_daily(user_id):
-    conn = sqlite3.connect('bot_data.db')
-    c = conn.cursor()
-    c.execute('''CREATE TABLE IF NOT EXISTS user_daily
-                 (user_id INTEGER PRIMARY KEY, date TEXT, count INTEGER)''')
-    today = datetime.now().date().isoformat()
-    c.execute("SELECT count FROM user_daily WHERE user_id = ? AND date = ?", (user_id, today))
-    result = c.fetchone()
-    conn.close()
-    return result[0] if result else 0
+    try:
+        conn = sqlite3.connect('bot_data.db')
+        c = conn.cursor()
+        today = datetime.now().date().isoformat()
+        c.execute("SELECT count FROM user_daily WHERE user_id = ? AND date = ?", (user_id, today))
+        result = c.fetchone()
+        conn.close()
+        return result[0] if result else 0
+    except:
+        return 0
 
 def update_user_daily(user_id, count):
-    conn = sqlite3.connect('bot_data.db')
-    c = conn.cursor()
-    today = datetime.now().date().isoformat()
-    c.execute("INSERT OR REPLACE INTO user_daily (user_id, date, count) VALUES (?, ?, ?)",
-              (user_id, today, count))
-    conn.commit()
-    conn.close()
+    try:
+        conn = sqlite3.connect('bot_data.db')
+        c = conn.cursor()
+        today = datetime.now().date().isoformat()
+        c.execute("INSERT OR REPLACE INTO user_daily (user_id, date, count) VALUES (?, ?, ?)",
+                  (user_id, today, count))
+        conn.commit()
+        conn.close()
+    except:
+        pass
 
 def increment_user_daily(user_id):
     current = get_user_daily(user_id)
     update_user_daily(user_id, current + 1)
 
 def get_user_messages_count(user_id):
-    conn = sqlite3.connect('bot_data.db')
-    c = conn.cursor()
-    c.execute('''CREATE TABLE IF NOT EXISTS user_messages
-                 (user_id INTEGER PRIMARY KEY, count INTEGER)''')
-    c.execute("SELECT count FROM user_messages WHERE user_id = ?", (user_id,))
-    result = c.fetchone()
-    conn.close()
-    return result[0] if result else 0
+    try:
+        conn = sqlite3.connect('bot_data.db')
+        c = conn.cursor()
+        c.execute("SELECT count FROM user_messages WHERE user_id = ?", (user_id,))
+        result = c.fetchone()
+        conn.close()
+        return result[0] if result else 0
+    except:
+        return 0
 
 def increment_user_messages(user_id):
-    current = get_user_messages_count(user_id)
-    conn = sqlite3.connect('bot_data.db')
-    c = conn.cursor()
-    c.execute("INSERT OR REPLACE INTO user_messages (user_id, count) VALUES (?, ?)",
-              (user_id, current + 1))
-    conn.commit()
-    conn.close()
+    try:
+        current = get_user_messages_count(user_id)
+        conn = sqlite3.connect('bot_data.db')
+        c = conn.cursor()
+        c.execute("INSERT OR REPLACE INTO user_messages (user_id, count) VALUES (?, ?)",
+                  (user_id, current + 1))
+        conn.commit()
+        conn.close()
+    except:
+        pass
 
 def get_user_last_use(user_id):
-    conn = sqlite3.connect('bot_data.db')
-    c = conn.cursor()
-    c.execute('''CREATE TABLE IF NOT EXISTS user_last_use
-                 (user_id INTEGER PRIMARY KEY, last_use INTEGER)''')
-    c.execute("SELECT last_use FROM user_last_use WHERE user_id = ?", (user_id,))
-    result = c.fetchone()
-    conn.close()
-    return result[0] if result else 0
+    try:
+        conn = sqlite3.connect('bot_data.db')
+        c = conn.cursor()
+        c.execute("SELECT last_use FROM user_last_use WHERE user_id = ?", (user_id,))
+        result = c.fetchone()
+        conn.close()
+        return result[0] if result else 0
+    except:
+        return 0
 
 def set_user_last_use(user_id, timestamp):
-    conn = sqlite3.connect('bot_data.db')
-    c = conn.cursor()
-    c.execute("INSERT OR REPLACE INTO user_last_use (user_id, last_use) VALUES (?, ?)",
-              (user_id, timestamp))
-    conn.commit()
-    conn.close()
+    try:
+        conn = sqlite3.connect('bot_data.db')
+        c = conn.cursor()
+        c.execute("INSERT OR REPLACE INTO user_last_use (user_id, last_use) VALUES (?, ?)",
+                  (user_id, timestamp))
+        conn.commit()
+        conn.close()
+    except:
+        pass
 
-# ========== ✅ توابع مدیریت ادمین (اصلاح شده) ==========
+# ========== ✅ توابع مدیریت ادمین (نسخه نهایی) ==========
 def is_admin(user_id):
     # اول چک کن تو لیست ADMIN_IDS هست یا نه
     if user_id in ADMIN_IDS:
@@ -147,8 +166,6 @@ def is_admin(user_id):
     try:
         conn = sqlite3.connect('bot_data.db')
         c = conn.cursor()
-        c.execute('''CREATE TABLE IF NOT EXISTS admins
-                     (user_id INTEGER PRIMARY KEY)''')
         c.execute("SELECT user_id FROM admins WHERE user_id = ?", (user_id,))
         result = c.fetchone()
         conn.close()
@@ -157,60 +174,86 @@ def is_admin(user_id):
         return False
 
 def get_all_admins():
-    conn = sqlite3.connect('bot_data.db')
-    c = conn.cursor()
-    c.execute("SELECT user_id FROM admins")
-    results = [row[0] for row in c.fetchall()]
-    conn.close()
-    return results
+    # اول از لیست ثابت می‌گیریم
+    fixed_admins = ADMIN_IDS.copy()
+    
+    # بعد از دیتابیس هم می‌خونیم اگه جدول وجود داشت
+    try:
+        conn = sqlite3.connect('bot_data.db')
+        c = conn.cursor()
+        c.execute("SELECT user_id FROM admins")
+        db_admins = [row[0] for row in c.fetchall()]
+        conn.close()
+        # ترکیب لیست ثابت و دیتابیس (بدون تکرار)
+        return list(set(fixed_admins + db_admins))
+    except:
+        # اگه دیتابیس مشکل داشت، فقط لیست ثابت رو برگردون
+        return fixed_admins
 
 def add_admin(user_id):
-    conn = sqlite3.connect('bot_data.db')
-    c = conn.cursor()
-    c.execute("INSERT OR IGNORE INTO admins (user_id) VALUES (?)", (user_id,))
-    conn.commit()
-    conn.close()
+    try:
+        conn = sqlite3.connect('bot_data.db')
+        c = conn.cursor()
+        c.execute("INSERT OR IGNORE INTO admins (user_id) VALUES (?)", (user_id,))
+        conn.commit()
+        conn.close()
+    except:
+        pass
 
 def remove_admin(user_id):
-    conn = sqlite3.connect('bot_data.db')
-    c = conn.cursor()
-    if user_id not in ADMIN_IDS:
+    if user_id in ADMIN_IDS:
+        return  # ادمین‌های ثابت رو نمی‌شه حذف کرد
+    try:
+        conn = sqlite3.connect('bot_data.db')
+        c = conn.cursor()
         c.execute("DELETE FROM admins WHERE user_id = ?", (user_id,))
         conn.commit()
-    conn.close()
+        conn.close()
+    except:
+        pass
 
 # ========== توابع مدیریت VIP ==========
 def is_vip(user_id):
-    conn = sqlite3.connect('bot_data.db')
-    c = conn.cursor()
-    c.execute('''CREATE TABLE IF NOT EXISTS vip_users
-                 (user_id INTEGER PRIMARY KEY)''')
-    c.execute("SELECT user_id FROM vip_users WHERE user_id = ?", (user_id,))
-    result = c.fetchone()
-    conn.close()
-    return result is not None
+    try:
+        conn = sqlite3.connect('bot_data.db')
+        c = conn.cursor()
+        c.execute("SELECT user_id FROM vip_users WHERE user_id = ?", (user_id,))
+        result = c.fetchone()
+        conn.close()
+        return result is not None
+    except:
+        return False
 
 def get_all_vips():
-    conn = sqlite3.connect('bot_data.db')
-    c = conn.cursor()
-    c.execute("SELECT user_id FROM vip_users")
-    results = [row[0] for row in c.fetchall()]
-    conn.close()
-    return results
+    try:
+        conn = sqlite3.connect('bot_data.db')
+        c = conn.cursor()
+        c.execute("SELECT user_id FROM vip_users")
+        results = [row[0] for row in c.fetchall()]
+        conn.close()
+        return results
+    except:
+        return []
 
 def add_vip(user_id):
-    conn = sqlite3.connect('bot_data.db')
-    c = conn.cursor()
-    c.execute("INSERT OR IGNORE INTO vip_users (user_id) VALUES (?)", (user_id,))
-    conn.commit()
-    conn.close()
+    try:
+        conn = sqlite3.connect('bot_data.db')
+        c = conn.cursor()
+        c.execute("INSERT OR IGNORE INTO vip_users (user_id) VALUES (?)", (user_id,))
+        conn.commit()
+        conn.close()
+    except:
+        pass
 
 def remove_vip(user_id):
-    conn = sqlite3.connect('bot_data.db')
-    c = conn.cursor()
-    c.execute("DELETE FROM vip_users WHERE user_id = ?", (user_id,))
-    conn.commit()
-    conn.close()
+    try:
+        conn = sqlite3.connect('bot_data.db')
+        c = conn.cursor()
+        c.execute("DELETE FROM vip_users WHERE user_id = ?", (user_id,))
+        conn.commit()
+        conn.close()
+    except:
+        pass
 
 # ========== توابع کمکی ==========
 def get_daily_limit(user_id):
@@ -577,18 +620,6 @@ def manage_vips(m):
     markup.add('➕ افزودن VIP', '➖ حذف VIP', '📋 لیست VIPها', '🔙 برگشت')
     bot.reply_to(m, "⭐ مدیریت VIPها:", reply_markup=markup)
 
-# ========== افزودن VIP ==========
-@bot.message_handler(func=lambda m: m.text == '➕ افزودن VIP' and is_admin(m.from_user.id))
-def add_vip_start(m):
-    msg = bot.reply_to(m, "🔹 **آیدی عددی کاربر مورد نظر را وارد کنید:**", parse_mode="Markdown")
-    user_states[m.chat.id] = ("waiting_for_add_vip", msg.message_id)
-
-# ========== حذف VIP ==========
-@bot.message_handler(func=lambda m: m.text == '➖ حذف VIP' and is_admin(m.from_user.id))
-def remove_vip_start(m):
-    msg = bot.reply_to(m, "🔹 **آیدی عددی VIP مورد نظر را وارد کنید:**", parse_mode="Markdown")
-    user_states[m.chat.id] = ("waiting_for_remove_vip", msg.message_id)
-
 # ========== لیست ادمین‌ها ==========
 @bot.message_handler(func=lambda m: m.text == '📋 لیست ادمین‌ها' and is_admin(m.from_user.id))
 def list_admins(m):
@@ -614,6 +645,18 @@ def add_admin_start(m):
 def remove_admin_start(m):
     msg = bot.reply_to(m, "🔹 **آیدی عددی ادمین مورد نظر را وارد کنید:**", parse_mode="Markdown")
     user_states[m.chat.id] = ("waiting_for_remove_admin", msg.message_id)
+
+# ========== افزودن VIP ==========
+@bot.message_handler(func=lambda m: m.text == '➕ افزودن VIP' and is_admin(m.from_user.id))
+def add_vip_start(m):
+    msg = bot.reply_to(m, "🔹 **آیدی عددی کاربر مورد نظر را وارد کنید:**", parse_mode="Markdown")
+    user_states[m.chat.id] = ("waiting_for_add_vip", msg.message_id)
+
+# ========== حذف VIP ==========
+@bot.message_handler(func=lambda m: m.text == '➖ حذف VIP' and is_admin(m.from_user.id))
+def remove_vip_start(m):
+    msg = bot.reply_to(m, "🔹 **آیدی عددی VIP مورد نظر را وارد کنید:**", parse_mode="Markdown")
+    user_states[m.chat.id] = ("waiting_for_remove_vip", msg.message_id)
 
 # ========== هندلر ورودی‌های عددی برای مدیریت ==========
 @bot.message_handler(func=lambda m: user_states.get(m.chat.id) and user_states[m.chat.id][0] in 
@@ -751,6 +794,7 @@ def index():
 
 # ========== اجرا ==========
 if __name__ == "__main__":
+    # ایجاد دیتابیس
     init_database()
     
     print("🤖 ربات با SQLite راه‌اندازی شد")
