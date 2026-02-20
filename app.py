@@ -44,43 +44,40 @@ DAILY_LIMIT_NORMAL = 5
 DAILY_LIMIT_VIP = 20
 bot_active = True
 
-# ========== ✅ راه‌اندازی دیتابیس (نسخه قوی) ==========
+# ========== ✅ راه‌اندازی دیتابیس (نسخه نهایی) ==========
 def init_database():
-    """ایجاد جداول دیتابیس با چندین بار تلاش"""
-    max_retries = 3
-    for attempt in range(max_retries):
-        try:
-            conn = sqlite3.connect('bot_data.db')
-            c = conn.cursor()
-            
-            # ساخت همه جدول‌ها
-            c.execute('''CREATE TABLE IF NOT EXISTS admins
-                         (user_id INTEGER PRIMARY KEY)''')
-            c.execute('''CREATE TABLE IF NOT EXISTS vip_users
-                         (user_id INTEGER PRIMARY KEY)''')
-            c.execute('''CREATE TABLE IF NOT EXISTS user_daily
-                         (user_id INTEGER PRIMARY KEY, date TEXT, count INTEGER)''')
-            c.execute('''CREATE TABLE IF NOT EXISTS user_messages
-                         (user_id INTEGER PRIMARY KEY, count INTEGER)''')
-            c.execute('''CREATE TABLE IF NOT EXISTS user_last_use
-                         (user_id INTEGER PRIMARY KEY, last_use INTEGER)''')
-            
-            conn.commit()
-            
-            # اضافه کردن ادمین‌های اولیه
-            for admin_id in ADMIN_IDS:
-                c.execute("INSERT OR IGNORE INTO admins (user_id) VALUES (?)", (admin_id,))
-            
-            conn.commit()
-            conn.close()
-            print(f"✅ دیتابیس با موفقیت ساخته شد (تلاش {attempt+1})")
-            return True
-        except Exception as e:
-            print(f"❌ خطا در ساخت دیتابیس (تلاش {attempt+1}): {e}")
-            time.sleep(2)
+    """ایجاد جداول دیتابیس - بدون try/except پیچیده"""
+    print("🔄 در حال راه‌اندازی دیتابیس...")
     
-    print("❌ ساخت دیتابیس پس از ۳ بار تلاش ناموفق بود")
-    return False
+    conn = sqlite3.connect('bot_data.db')
+    c = conn.cursor()
+    
+    # ساخت همه جدول‌ها
+    c.execute('''CREATE TABLE IF NOT EXISTS admins
+                 (user_id INTEGER PRIMARY KEY)''')
+    c.execute('''CREATE TABLE IF NOT EXISTS vip_users
+                 (user_id INTEGER PRIMARY KEY)''')
+    c.execute('''CREATE TABLE IF NOT EXISTS user_daily
+                 (user_id INTEGER PRIMARY KEY, date TEXT, count INTEGER)''')
+    c.execute('''CREATE TABLE IF NOT EXISTS user_messages
+                 (user_id INTEGER PRIMARY KEY, count INTEGER)''')
+    c.execute('''CREATE TABLE IF NOT EXISTS user_last_use
+                 (user_id INTEGER PRIMARY KEY, last_use INTEGER)''')
+    
+    # اضافه کردن ادمین‌های اولیه
+    for admin_id in ADMIN_IDS:
+        c.execute("INSERT OR IGNORE INTO admins (user_id) VALUES (?)", (admin_id,))
+    
+    conn.commit()
+    
+    # چک کردن اینکه جدول‌ها ساخته شدن
+    c.execute("SELECT name FROM sqlite_master WHERE type='table'")
+    tables = c.fetchall()
+    print(f"✅ جدول‌های ساخته شده: {[table[0] for table in tables]}")
+    
+    conn.close()
+    print("✅ دیتابیس با موفقیت راه‌اندازی شد")
+    return True
 
 # ========== توابع کار با دیتابیس ==========
 def get_user_daily(user_id):
@@ -92,7 +89,8 @@ def get_user_daily(user_id):
         result = c.fetchone()
         conn.close()
         return result[0] if result else 0
-    except:
+    except Exception as e:
+        print(f"❌ خطا در get_user_daily: {e}")
         return 0
 
 def update_user_daily(user_id, count):
@@ -104,8 +102,8 @@ def update_user_daily(user_id, count):
                   (user_id, today, count))
         conn.commit()
         conn.close()
-    except:
-        pass
+    except Exception as e:
+        print(f"❌ خطا در update_user_daily: {e}")
 
 def increment_user_daily(user_id):
     current = get_user_daily(user_id)
@@ -119,7 +117,8 @@ def get_user_messages_count(user_id):
         result = c.fetchone()
         conn.close()
         return result[0] if result else 0
-    except:
+    except Exception as e:
+        print(f"❌ خطا در get_user_messages_count: {e}")
         return 0
 
 def increment_user_messages(user_id):
@@ -131,8 +130,8 @@ def increment_user_messages(user_id):
                   (user_id, current + 1))
         conn.commit()
         conn.close()
-    except:
-        pass
+    except Exception as e:
+        print(f"❌ خطا در increment_user_messages: {e}")
 
 def get_user_last_use(user_id):
     try:
@@ -142,7 +141,8 @@ def get_user_last_use(user_id):
         result = c.fetchone()
         conn.close()
         return result[0] if result else 0
-    except:
+    except Exception as e:
+        print(f"❌ خطا در get_user_last_use: {e}")
         return 0
 
 def set_user_last_use(user_id, timestamp):
@@ -153,8 +153,8 @@ def set_user_last_use(user_id, timestamp):
                   (user_id, timestamp))
         conn.commit()
         conn.close()
-    except:
-        pass
+    except Exception as e:
+        print(f"❌ خطا در set_user_last_use: {e}")
 
 # ========== ✅ توابع مدیریت ادمین (نسخه نهایی) ==========
 def is_admin(user_id):
@@ -170,25 +170,25 @@ def is_admin(user_id):
         result = c.fetchone()
         conn.close()
         return result is not None
-    except:
+    except Exception as e:
+        print(f"❌ خطا در is_admin: {e}")
         return False
 
 def get_all_admins():
-    # اول از لیست ثابت می‌گیریم
-    fixed_admins = ADMIN_IDS.copy()
-    
-    # بعد از دیتابیس هم می‌خونیم اگه جدول وجود داشت
     try:
         conn = sqlite3.connect('bot_data.db')
         c = conn.cursor()
         c.execute("SELECT user_id FROM admins")
-        db_admins = [row[0] for row in c.fetchall()]
+        results = [row[0] for row in c.fetchall()]
         conn.close()
-        # ترکیب لیست ثابت و دیتابیس (بدون تکرار)
-        return list(set(fixed_admins + db_admins))
-    except:
-        # اگه دیتابیس مشکل داشت، فقط لیست ثابت رو برگردون
-        return fixed_admins
+        # اضافه کردن ادمین‌های ثابت به لیست
+        for admin_id in ADMIN_IDS:
+            if admin_id not in results:
+                results.append(admin_id)
+        return results
+    except Exception as e:
+        print(f"❌ خطا در get_all_admins: {e}")
+        return ADMIN_IDS
 
 def add_admin(user_id):
     try:
@@ -197,20 +197,24 @@ def add_admin(user_id):
         c.execute("INSERT OR IGNORE INTO admins (user_id) VALUES (?)", (user_id,))
         conn.commit()
         conn.close()
-    except:
-        pass
+        return True
+    except Exception as e:
+        print(f"❌ خطا در add_admin: {e}")
+        return False
 
 def remove_admin(user_id):
     if user_id in ADMIN_IDS:
-        return  # ادمین‌های ثابت رو نمی‌شه حذف کرد
+        return False  # ادمین‌های ثابت رو نمی‌شه حذف کرد
     try:
         conn = sqlite3.connect('bot_data.db')
         c = conn.cursor()
         c.execute("DELETE FROM admins WHERE user_id = ?", (user_id,))
         conn.commit()
         conn.close()
-    except:
-        pass
+        return True
+    except Exception as e:
+        print(f"❌ خطا در remove_admin: {e}")
+        return False
 
 # ========== توابع مدیریت VIP ==========
 def is_vip(user_id):
@@ -221,7 +225,8 @@ def is_vip(user_id):
         result = c.fetchone()
         conn.close()
         return result is not None
-    except:
+    except Exception as e:
+        print(f"❌ خطا در is_vip: {e}")
         return False
 
 def get_all_vips():
@@ -232,7 +237,8 @@ def get_all_vips():
         results = [row[0] for row in c.fetchall()]
         conn.close()
         return results
-    except:
+    except Exception as e:
+        print(f"❌ خطا در get_all_vips: {e}")
         return []
 
 def add_vip(user_id):
@@ -242,8 +248,10 @@ def add_vip(user_id):
         c.execute("INSERT OR IGNORE INTO vip_users (user_id) VALUES (?)", (user_id,))
         conn.commit()
         conn.close()
-    except:
-        pass
+        return True
+    except Exception as e:
+        print(f"❌ خطا در add_vip: {e}")
+        return False
 
 def remove_vip(user_id):
     try:
@@ -252,8 +260,10 @@ def remove_vip(user_id):
         c.execute("DELETE FROM vip_users WHERE user_id = ?", (user_id,))
         conn.commit()
         conn.close()
-    except:
-        pass
+        return True
+    except Exception as e:
+        print(f"❌ خطا در remove_vip: {e}")
+        return False
 
 # ========== توابع کمکی ==========
 def get_daily_limit(user_id):
@@ -373,24 +383,25 @@ def my_status(m):
 # ========== آمار کلی ==========
 @bot.message_handler(func=lambda m: m.text == '📈 آمار کلی')
 def global_stats(m):
-    conn = sqlite3.connect('bot_data.db')
-    c = conn.cursor()
-    
-    c.execute("SELECT COUNT(*) FROM user_daily")
-    total_users = c.fetchone()[0]
-    
-    today = datetime.now().date().isoformat()
-    c.execute("SELECT COUNT(*) FROM user_daily WHERE date = ?", (today,))
-    today_users = c.fetchone()[0]
-    
-    c.execute("SELECT SUM(count) FROM user_messages")
-    total_messages = c.fetchone()[0] or 0
-    
-    conn.close()
-    
-    vip_count = len(get_all_vips())
-    
-    msg = f"""📊 **آمار کلی ربات:**
+    try:
+        conn = sqlite3.connect('bot_data.db')
+        c = conn.cursor()
+        
+        c.execute("SELECT COUNT(*) FROM user_daily")
+        total_users = c.fetchone()[0]
+        
+        today = datetime.now().date().isoformat()
+        c.execute("SELECT COUNT(*) FROM user_daily WHERE date = ?", (today,))
+        today_users = c.fetchone()[0]
+        
+        c.execute("SELECT SUM(count) FROM user_messages")
+        total_messages = c.fetchone()[0] or 0
+        
+        conn.close()
+        
+        vip_count = len(get_all_vips())
+        
+        msg = f"""📊 **آمار کلی ربات:**
 
 👥 کاربران کل: {total_users}
 📅 کاربران امروز: {today_users}
@@ -400,8 +411,11 @@ def global_stats(m):
 ⚡ محدودیت VIP: {DAILY_LIMIT_VIP} بار
 
 👑 **ساخته شده توسط {CREATOR_USERNAME}**"""
-    
-    bot.reply_to(m, msg, parse_mode="Markdown")
+        
+        bot.reply_to(m, msg, parse_mode="Markdown")
+    except Exception as e:
+        print(f"❌ خطا در global_stats: {e}")
+        bot.reply_to(m, "❌ خطا در دریافت آمار. لطفاً بعداً تلاش کنید.")
 
 # ========== حمله جدید ==========
 @bot.message_handler(func=lambda m: m.text == '🚀 حمله جدید')
@@ -527,32 +541,33 @@ def admin_panel(m):
 # ========== آمار مدیریت ==========
 @bot.message_handler(func=lambda m: m.text == '📊 آمار مدیریت' and is_admin(m.from_user.id))
 def admin_stats(m):
-    conn = sqlite3.connect('bot_data.db')
-    c = conn.cursor()
-    
-    c.execute("SELECT COUNT(*) FROM user_daily")
-    total_users = c.fetchone()[0]
-    
-    today = datetime.now().date().isoformat()
-    c.execute("SELECT COUNT(*) FROM user_daily WHERE date = ?", (today,))
-    today_users = c.fetchone()[0]
-    
-    c.execute("SELECT SUM(count) FROM user_messages")
-    total_messages = c.fetchone()[0] or 0
-    
-    c.execute("SELECT COUNT(*) FROM user_daily WHERE count > 0")
-    active_users = c.fetchone()[0]
-    
-    conn.close()
-    
-    active_attacks_count = len([x for x in active_attacks.values() if x])
-    status = "✅ فعال" if bot_active else "❌ غیرفعال"
-    vip_count = len(get_all_vips())
-    admins = get_all_admins()
-    admin_count = len(admins)
-    
-    msg = f"""📊 **آمار مدیریت:**
-    
+    try:
+        conn = sqlite3.connect('bot_data.db')
+        c = conn.cursor()
+        
+        c.execute("SELECT COUNT(*) FROM user_daily")
+        total_users = c.fetchone()[0]
+        
+        today = datetime.now().date().isoformat()
+        c.execute("SELECT COUNT(*) FROM user_daily WHERE date = ?", (today,))
+        today_users = c.fetchone()[0]
+        
+        c.execute("SELECT SUM(count) FROM user_messages")
+        total_messages = c.fetchone()[0] or 0
+        
+        c.execute("SELECT COUNT(*) FROM user_daily WHERE count > 0")
+        active_users = c.fetchone()[0]
+        
+        conn.close()
+        
+        active_attacks_count = len([x for x in active_attacks.values() if x])
+        status = "✅ فعال" if bot_active else "❌ غیرفعال"
+        vip_count = len(get_all_vips())
+        admins = get_all_admins()
+        admin_count = len(admins)
+        
+        msg = f"""📊 **آمار مدیریت:**
+        
 👤 کاربران کل: {total_users}
 📅 کاربران امروز: {today_users}
 ⚡ کاربران فعال: {active_users}
@@ -563,7 +578,10 @@ def admin_stats(m):
 🔰 وضعیت ربات: {status}
 👑 سازنده: {CREATOR_USERNAME}
 """
-    bot.reply_to(m, msg, parse_mode="Markdown")
+        bot.reply_to(m, msg, parse_mode="Markdown")
+    except Exception as e:
+        print(f"❌ خطا در admin_stats: {e}")
+        bot.reply_to(m, "❌ خطا در دریافت آمار مدیریت.")
 
 # ========== لیست VIPها ==========
 @bot.message_handler(func=lambda m: m.text == '📋 لیست VIPها' and is_admin(m.from_user.id))
@@ -590,21 +608,25 @@ def admin_toggle(m):
 # ========== گزارش کاربران ==========
 @bot.message_handler(func=lambda m: m.text == '📋 گزارش کاربران' and is_admin(m.from_user.id))
 def admin_users(m):
-    conn = sqlite3.connect('bot_data.db')
-    c = conn.cursor()
-    today = datetime.now().date().isoformat()
-    
-    c.execute('''SELECT user_id, count FROM user_daily 
-                 WHERE date = ? ORDER BY count DESC LIMIT 10''', (today,))
-    users = c.fetchall()
-    conn.close()
-    
-    report = "📋 **کاربران برتر امروز:**\n\n"
-    for uid, count in users:
-        vip = "⭐" if is_vip(uid) else "👤"
-        report += f"{vip} `{uid}`: {count} حمله\n"
-    report += f"\n👑 {CREATOR_USERNAME}"
-    bot.reply_to(m, report, parse_mode="Markdown")
+    try:
+        conn = sqlite3.connect('bot_data.db')
+        c = conn.cursor()
+        today = datetime.now().date().isoformat()
+        
+        c.execute('''SELECT user_id, count FROM user_daily 
+                     WHERE date = ? ORDER BY count DESC LIMIT 10''', (today,))
+        users = c.fetchall()
+        conn.close()
+        
+        report = "📋 **کاربران برتر امروز:**\n\n"
+        for uid, count in users:
+            vip = "⭐" if is_vip(uid) else "👤"
+            report += f"{vip} `{uid}`: {count} حمله\n"
+        report += f"\n👑 {CREATOR_USERNAME}"
+        bot.reply_to(m, report, parse_mode="Markdown")
+    except Exception as e:
+        print(f"❌ خطا در admin_users: {e}")
+        bot.reply_to(m, "❌ خطا در دریافت گزارش کاربران.")
 
 # ========== مدیریت ادمین‌ها ==========
 @bot.message_handler(func=lambda m: m.text == '👥 مدیریت ادمین‌ها' and is_admin(m.from_user.id))
@@ -624,13 +646,10 @@ def manage_vips(m):
 @bot.message_handler(func=lambda m: m.text == '📋 لیست ادمین‌ها' and is_admin(m.from_user.id))
 def list_admins(m):
     admins = get_all_admins()
-    if not admins:
-        bot.reply_to(m, "📋 هیچ ادمینی یافت نشد.")
-        return
-    
     text = "📋 **لیست ادمین‌ها:**\n\n"
     for uid in admins:
-        text += f"👑 `{uid}`\n"
+        star = "⭐" if uid in ADMIN_IDS else ""
+        text += f"{star}👑 `{uid}`\n"
     text += f"\n👑 {CREATOR_USERNAME}"
     bot.reply_to(m, text, parse_mode="Markdown")
 
@@ -676,20 +695,28 @@ def handle_admin_edit(m):
     action = state[0]
     
     if action == "waiting_for_add_admin":
-        add_admin(target_id)
-        bot.reply_to(m, f"✅ کاربر {target_id} با موفقیت به ادمین‌ها اضافه شد.")
+        if add_admin(target_id):
+            bot.reply_to(m, f"✅ کاربر {target_id} با موفقیت به ادمین‌ها اضافه شد.")
+        else:
+            bot.reply_to(m, f"❌ خطا در افزودن کاربر {target_id}.")
     elif action == "waiting_for_remove_admin":
         if target_id in ADMIN_IDS:
             bot.reply_to(m, "❌ این کاربر جزو ادمین‌های ثابت است و قابل حذف نیست.")
         else:
-            remove_admin(target_id)
-            bot.reply_to(m, f"✅ کاربر {target_id} از ادمین‌ها حذف شد.")
+            if remove_admin(target_id):
+                bot.reply_to(m, f"✅ کاربر {target_id} از ادمین‌ها حذف شد.")
+            else:
+                bot.reply_to(m, f"❌ خطا در حذف کاربر {target_id}.")
     elif action == "waiting_for_add_vip":
-        add_vip(target_id)
-        bot.reply_to(m, f"✅ کاربر {target_id} با موفقیت به VIPها اضافه شد.")
+        if add_vip(target_id):
+            bot.reply_to(m, f"✅ کاربر {target_id} با موفقیت به VIPها اضافه شد.")
+        else:
+            bot.reply_to(m, f"❌ خطا در افزودن کاربر {target_id}.")
     elif action == "waiting_for_remove_vip":
-        remove_vip(target_id)
-        bot.reply_to(m, f"✅ کاربر {target_id} از VIPها حذف شد.")
+        if remove_vip(target_id):
+            bot.reply_to(m, f"✅ کاربر {target_id} از VIPها حذف شد.")
+        else:
+            bot.reply_to(m, f"❌ خطا در حذف کاربر {target_id}.")
     
     del user_states[m.chat.id]
 
@@ -794,13 +821,19 @@ def index():
 
 # ========== اجرا ==========
 if __name__ == "__main__":
+    print("="*50)
+    print("🚀 راه‌اندازی ربات اس ام اس بمبر")
+    print("="*50)
+    
     # ایجاد دیتابیس
     init_database()
     
+    print("="*50)
     print("🤖 ربات با SQLite راه‌اندازی شد")
     print(f"👑 ادمین‌های ثابت: {ADMIN_IDS}")
     print(f"👑 سازنده: {CREATOR_USERNAME}")
     print("✅ تابع بیدار ماندن فعال شد - ربات هیچوقت نمیخوابه")
+    print("="*50)
     
     port = int(os.environ.get('PORT', 10000))
     app.run(host='0.0.0.0', port=port)
