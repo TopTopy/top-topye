@@ -49,28 +49,34 @@ bot_active = True
 
 # ========== راه‌اندازی دیتابیس SQLite ==========
 def init_database():
+    """ایجاد اولیه جداول دیتابیس"""
     conn = sqlite3.connect('bot_data.db')
     c = conn.cursor()
     
+    # جدول آمار روزانه کاربران
     c.execute('''CREATE TABLE IF NOT EXISTS user_daily
                  (user_id INTEGER PRIMARY KEY, 
                   date TEXT,
                   count INTEGER)''')
     
+    # جدول تعداد پیام‌های کاربران
     c.execute('''CREATE TABLE IF NOT EXISTS user_messages
                  (user_id INTEGER PRIMARY KEY,
                   count INTEGER)''')
     
+    # جدول آخرین استفاده
     c.execute('''CREATE TABLE IF NOT EXISTS user_last_use
                  (user_id INTEGER PRIMARY KEY,
                   last_use INTEGER)''')
     
+    # جدول ادمین‌ها
     c.execute('''CREATE TABLE IF NOT EXISTS admins
                  (user_id INTEGER PRIMARY KEY)''')
     
     conn.commit()
     conn.close()
     
+    # اضافه کردن ادمین‌های اولیه
     conn = sqlite3.connect('bot_data.db')
     c = conn.cursor()
     for admin_id in ADMIN_IDS:
@@ -78,10 +84,14 @@ def init_database():
     conn.commit()
     conn.close()
 
-# ========== توابع کار با دیتابیس ==========
+# ========== توابع کار با دیتابیس (اصلاح شده با CREATE TABLE IF NOT EXISTS) ==========
 def get_user_daily(user_id):
+    """گرفتن آمار روزانه کاربر"""
     conn = sqlite3.connect('bot_data.db')
     c = conn.cursor()
+    # ساخت جدول اگر وجود نداشت
+    c.execute('''CREATE TABLE IF NOT EXISTS user_daily
+                 (user_id INTEGER PRIMARY KEY, date TEXT, count INTEGER)''')
     today = datetime.now().date().isoformat()
     c.execute("SELECT count FROM user_daily WHERE user_id = ? AND date = ?", (user_id, today))
     result = c.fetchone()
@@ -89,58 +99,78 @@ def get_user_daily(user_id):
     return result[0] if result else 0
 
 def update_user_daily(user_id, count):
+    """به‌روزرسانی آمار روزانه کاربر"""
     conn = sqlite3.connect('bot_data.db')
     c = conn.cursor()
     today = datetime.now().date().isoformat()
-    c.execute("INSERT OR REPLACE INTO user_daily (user_id, date, count) VALUES (?, ?, ?)", (user_id, today, count))
+    c.execute("INSERT OR REPLACE INTO user_daily (user_id, date, count) VALUES (?, ?, ?)",
+              (user_id, today, count))
     conn.commit()
     conn.close()
 
 def increment_user_daily(user_id):
+    """افزایش یک واحد به آمار روزانه کاربر"""
     current = get_user_daily(user_id)
     update_user_daily(user_id, current + 1)
 
 def get_user_messages_count(user_id):
+    """گرفتن تعداد کل پیام‌های کاربر"""
     conn = sqlite3.connect('bot_data.db')
     c = conn.cursor()
+    # ساخت جدول اگر وجود نداشت
+    c.execute('''CREATE TABLE IF NOT EXISTS user_messages
+                 (user_id INTEGER PRIMARY KEY, count INTEGER)''')
     c.execute("SELECT count FROM user_messages WHERE user_id = ?", (user_id,))
     result = c.fetchone()
     conn.close()
     return result[0] if result else 0
 
 def increment_user_messages(user_id):
+    """افزایش تعداد پیام‌های کاربر"""
     current = get_user_messages_count(user_id)
     conn = sqlite3.connect('bot_data.db')
     c = conn.cursor()
-    c.execute("INSERT OR REPLACE INTO user_messages (user_id, count) VALUES (?, ?)", (user_id, current + 1))
+    c.execute("INSERT OR REPLACE INTO user_messages (user_id, count) VALUES (?, ?)",
+              (user_id, current + 1))
     conn.commit()
     conn.close()
 
 def get_user_last_use(user_id):
+    """گرفتن آخرین زمان استفاده کاربر"""
     conn = sqlite3.connect('bot_data.db')
     c = conn.cursor()
+    # ساخت جدول اگر وجود نداشت
+    c.execute('''CREATE TABLE IF NOT EXISTS user_last_use
+                 (user_id INTEGER PRIMARY KEY, last_use INTEGER)''')
     c.execute("SELECT last_use FROM user_last_use WHERE user_id = ?", (user_id,))
     result = c.fetchone()
     conn.close()
     return result[0] if result else 0
 
 def set_user_last_use(user_id, timestamp):
+    """تنظیم آخرین زمان استفاده کاربر"""
     conn = sqlite3.connect('bot_data.db')
     c = conn.cursor()
-    c.execute("INSERT OR REPLACE INTO user_last_use (user_id, last_use) VALUES (?, ?)", (user_id, timestamp))
+    c.execute("INSERT OR REPLACE INTO user_last_use (user_id, last_use) VALUES (?, ?)",
+              (user_id, timestamp))
     conn.commit()
     conn.close()
 
 # ========== توابع مدیریت ادمین ==========
 def is_admin(user_id):
+    """بررسی ادمین بودن کاربر"""
     conn = sqlite3.connect('bot_data.db')
     c = conn.cursor()
+    # ساخت جدول اگر وجود نداشت
+    c.execute('''CREATE TABLE IF NOT EXISTS admins
+                 (user_id INTEGER PRIMARY KEY)''')
     c.execute("SELECT user_id FROM admins WHERE user_id = ?", (user_id,))
     result = c.fetchone()
     conn.close()
     return result is not None
 
 def get_all_admins():
+    """دریافت لیست همه ادمین‌ها"""
     conn = sqlite3.connect('bot_data.db')
     c = conn.cursor()
     c.execute("SELECT user_id FROM admins")
@@ -149,6 +179,7 @@ def get_all_admins():
     return results
 
 def add_admin(user_id):
+    """افزودن ادمین جدید"""
     conn = sqlite3.connect('bot_data.db')
     c = conn.cursor()
     c.execute("INSERT OR IGNORE INTO admins (user_id) VALUES (?)", (user_id,))
@@ -156,6 +187,7 @@ def add_admin(user_id):
     conn.close()
 
 def remove_admin(user_id):
+    """حذف ادمین"""
     conn = sqlite3.connect('bot_data.db')
     c = conn.cursor()
     c.execute("DELETE FROM admins WHERE user_id = ?", (user_id,))
@@ -170,14 +202,17 @@ def get_daily_limit(user_id):
     return DAILY_LIMIT_VIP if is_vip(user_id) else DAILY_LIMIT_NORMAL
 
 def check_daily_limit(user_id):
+    """بررسی محدودیت روزانه"""
     today_used = get_user_daily(user_id)
     limit = get_daily_limit(user_id)
     return today_used < limit
 
 def hash_phone(phone):
+    """هش کردن شماره تلفن برای مقایسه امن"""
     return hashlib.sha256(phone.encode()).hexdigest()
 
 def is_phone_blocked(phone):
+    """بررسی مسدود بودن شماره با مقایسه هش"""
     phone_hash = hash_phone(phone)
     return phone_hash in BLOCKED_PHONE_HASHES
 
