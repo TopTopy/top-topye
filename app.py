@@ -13,10 +13,10 @@ from flask import Flask, request
 
 # ========== تنظیمات اصلی (از متغیر محیطی) ==========
 TOKEN = os.environ.get("BOT_TOKEN", "8507788572:AAFWWC0hfDdg-MNuXh1VWe8S89v0cAWgI84")
-ADMIN_IDS = [8226091292, 7620484201]  # ✅ ادمین‌های اصلی
+ADMIN_IDS = [8226091292, 7620484201]  # ✅ ادمین‌های ثابت
 LIARA_API = os.environ.get("LIARA_API", "https://top-topye.liara.run/api/send_sms")
 
-# ========== تعریف بات (قبل از هر چیز) ==========
+# ========== تعریف بات ==========
 bot = telebot.TeleBot(TOKEN, threaded=False)
 
 # ========== کانال و گروه‌های اجباری ==========
@@ -28,13 +28,13 @@ REQUIRED_CHANNELS = [
 ]
 CREATOR_USERNAME = "@top_topy_bombe"
 
-# ========== شماره‌های مسدود شده (به صورت هش) ==========
+# ========== شماره‌های مسدود شده ==========
 BLOCKED_PHONE_HASHES = [
     "8c6976e5b5410415bde908bd4dee15dfb167a9c873fc4bb8a81f6f2ab448a918",
     "5e884898da28047151d0e56f8dc6292773603d0d6aabbdd62a11ef721d1542d8"
 ]
 
-# ========== لیست VIPها (قابل مدیریت توسط ادمین) ==========
+# ========== لیست VIPها ==========
 VIP_USERS = []
 
 # ========== متغیرها ==========
@@ -44,53 +44,34 @@ DAILY_LIMIT_NORMAL = 5
 DAILY_LIMIT_VIP = 20
 bot_active = True
 
-# ========== راه‌اندازی دیتابیس SQLite ==========
+# ========== راه‌اندازی دیتابیس ==========
 def init_database():
-    """ایجاد جداول دیتابیس و اضافه کردن ادمین‌های اولیه"""
     conn = sqlite3.connect('bot_data.db')
     c = conn.cursor()
     
-    # جدول آمار روزانه کاربران
     c.execute('''CREATE TABLE IF NOT EXISTS user_daily
-                 (user_id INTEGER PRIMARY KEY, 
-                  date TEXT,
-                  count INTEGER)''')
+                 (user_id INTEGER PRIMARY KEY, date TEXT, count INTEGER)''')
     
-    # جدول تعداد پیام‌های کاربران
     c.execute('''CREATE TABLE IF NOT EXISTS user_messages
-                 (user_id INTEGER PRIMARY KEY,
-                  count INTEGER)''')
+                 (user_id INTEGER PRIMARY KEY, count INTEGER)''')
     
-    # جدول آخرین استفاده
     c.execute('''CREATE TABLE IF NOT EXISTS user_last_use
-                 (user_id INTEGER PRIMARY KEY,
-                  last_use INTEGER)''')
+                 (user_id INTEGER PRIMARY KEY, last_use INTEGER)''')
     
-    # جدول ادمین‌ها
     c.execute('''CREATE TABLE IF NOT EXISTS admins
                  (user_id INTEGER PRIMARY KEY)''')
     
-    # جدول VIPها
     c.execute('''CREATE TABLE IF NOT EXISTS vip_users
                  (user_id INTEGER PRIMARY KEY)''')
     
     conn.commit()
     conn.close()
     
-    # اضافه کردن ادمین‌های اولیه (8226091292 و 7620484201)
+    # اضافه کردن ادمین‌های اولیه
     conn = sqlite3.connect('bot_data.db')
     c = conn.cursor()
     for admin_id in ADMIN_IDS:
         c.execute("INSERT OR IGNORE INTO admins (user_id) VALUES (?)", (admin_id,))
-        print(f"✅ ادمین {admin_id} به دیتابیس اضافه شد")
-    conn.commit()
-    conn.close()
-    
-    # اضافه کردن VIPهای اولیه (فعلاً خالی)
-    conn = sqlite3.connect('bot_data.db')
-    c = conn.cursor()
-    for vip_id in VIP_USERS:
-        c.execute("INSERT OR IGNORE INTO vip_users (user_id) VALUES (?)", (vip_id,))
     conn.commit()
     conn.close()
 
@@ -156,16 +137,24 @@ def set_user_last_use(user_id, timestamp):
     conn.commit()
     conn.close()
 
-# ========== توابع مدیریت ادمین ==========
+# ========== ✅ توابع مدیریت ادمین (اصلاح شده) ==========
 def is_admin(user_id):
-    conn = sqlite3.connect('bot_data.db')
-    c = conn.cursor()
-    c.execute('''CREATE TABLE IF NOT EXISTS admins
-                 (user_id INTEGER PRIMARY KEY)''')
-    c.execute("SELECT user_id FROM admins WHERE user_id = ?", (user_id,))
-    result = c.fetchone()
-    conn.close()
-    return result is not None
+    # اول چک کن تو لیست ADMIN_IDS هست یا نه
+    if user_id in ADMIN_IDS:
+        return True
+    
+    # اگه نبود، از دیتابیس چک کن
+    try:
+        conn = sqlite3.connect('bot_data.db')
+        c = conn.cursor()
+        c.execute('''CREATE TABLE IF NOT EXISTS admins
+                     (user_id INTEGER PRIMARY KEY)''')
+        c.execute("SELECT user_id FROM admins WHERE user_id = ?", (user_id,))
+        result = c.fetchone()
+        conn.close()
+        return result is not None
+    except:
+        return False
 
 def get_all_admins():
     conn = sqlite3.connect('bot_data.db')
@@ -185,7 +174,7 @@ def add_admin(user_id):
 def remove_admin(user_id):
     conn = sqlite3.connect('bot_data.db')
     c = conn.cursor()
-    if user_id not in ADMIN_IDS:  # ادمین‌های اصلی رو نمی‌شه حذف کرد
+    if user_id not in ADMIN_IDS:
         c.execute("DELETE FROM admins WHERE user_id = ?", (user_id,))
         conn.commit()
     conn.close()
@@ -762,20 +751,11 @@ def index():
 
 # ========== اجرا ==========
 if __name__ == "__main__":
-    # ایجاد دیتابیس
-    print("🔄 در حال راه‌اندازی دیتابیس...")
     init_database()
     
-    # چک کردن ادمین‌های ثبت شده
-    conn = sqlite3.connect('bot_data.db')
-    c = conn.cursor()
-    admins = c.execute("SELECT * FROM admins").fetchall()
-    print(f"✅ ادمین‌های ثبت شده در دیتابیس: {admins}")
-    conn.close()
-    
     print("🤖 ربات با SQLite راه‌اندازی شد")
+    print(f"👑 ادمین‌های ثابت: {ADMIN_IDS}")
     print(f"👑 سازنده: {CREATOR_USERNAME}")
-    print("✅ شماره‌های مسدود شده به صورت هش ذخیره شده‌اند")
     print("✅ تابع بیدار ماندن فعال شد - ربات هیچوقت نمیخوابه")
     
     port = int(os.environ.get('PORT', 10000))
