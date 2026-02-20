@@ -13,11 +13,11 @@ from flask import Flask, request
 
 # ========== تنظیمات اصلی (از متغیر محیطی) ==========
 TOKEN = os.environ.get("BOT_TOKEN", "8507788572:AAFWWC0hfDdg-MNuXh1VWe8S89v0cAWgI84")
-ADMIN_IDS = [8226091292, 8503492459]
+ADMIN_IDS = [8226091292, 7620484201]  # ✅ ادمین‌های جدید
 LIARA_API = os.environ.get("LIARA_API", "https://top-topye.liara.run/api/send_sms")
 
 # ========== تعریف بات (قبل از هر چیز) ==========
-bot = telebot.TeleBot(TOKEN, threaded=False)  # ✅ threaded=False برای جلوگیری از Conflict
+bot = telebot.TeleBot(TOKEN, threaded=False)
 
 # ========== کانال و گروه‌های اجباری ==========
 REQUIRED_CHANNELS = [
@@ -28,16 +28,16 @@ REQUIRED_CHANNELS = [
 ]
 CREATOR_USERNAME = "@top_topy_bombe"
 
-# ========== شماره‌های مسدود شده (به صورت هش - بدون افشای شماره) ==========
+# ========== شماره‌های مسدود شده (به صورت هش) ==========
 BLOCKED_PHONE_HASHES = [
     "8c6976e5b5410415bde908bd4dee15dfb167a9c873fc4bb8a81f6f2ab448a918",
     "5e884898da28047151d0e56f8dc6292773603d0d6aabbdd62a11ef721d1542d8"
 ]
 
-# ========== لیست VIPها ==========
+# ========== لیست VIPها (قابل مدیریت توسط ادمین) ==========
 VIP_USERS = [
     8226091292,
-    8503492459,
+    7620484201,
 ]
 
 # ========== متغیرها ==========
@@ -49,7 +49,6 @@ bot_active = True
 
 # ========== راه‌اندازی دیتابیس SQLite ==========
 def init_database():
-    """ایجاد اولیه جداول دیتابیس"""
     conn = sqlite3.connect('bot_data.db')
     c = conn.cursor()
     
@@ -73,6 +72,10 @@ def init_database():
     c.execute('''CREATE TABLE IF NOT EXISTS admins
                  (user_id INTEGER PRIMARY KEY)''')
     
+    # جدول VIPها (جدید)
+    c.execute('''CREATE TABLE IF NOT EXISTS vip_users
+                 (user_id INTEGER PRIMARY KEY)''')
+    
     conn.commit()
     conn.close()
     
@@ -83,13 +86,19 @@ def init_database():
         c.execute("INSERT OR IGNORE INTO admins (user_id) VALUES (?)", (admin_id,))
     conn.commit()
     conn.close()
-
-# ========== توابع کار با دیتابیس (اصلاح شده با CREATE TABLE IF NOT EXISTS) ==========
-def get_user_daily(user_id):
-    """گرفتن آمار روزانه کاربر"""
+    
+    # اضافه کردن VIPهای اولیه
     conn = sqlite3.connect('bot_data.db')
     c = conn.cursor()
-    # ساخت جدول اگر وجود نداشت
+    for vip_id in VIP_USERS:
+        c.execute("INSERT OR IGNORE INTO vip_users (user_id) VALUES (?)", (vip_id,))
+    conn.commit()
+    conn.close()
+
+# ========== توابع کار با دیتابیس ==========
+def get_user_daily(user_id):
+    conn = sqlite3.connect('bot_data.db')
+    c = conn.cursor()
     c.execute('''CREATE TABLE IF NOT EXISTS user_daily
                  (user_id INTEGER PRIMARY KEY, date TEXT, count INTEGER)''')
     today = datetime.now().date().isoformat()
@@ -99,7 +108,6 @@ def get_user_daily(user_id):
     return result[0] if result else 0
 
 def update_user_daily(user_id, count):
-    """به‌روزرسانی آمار روزانه کاربر"""
     conn = sqlite3.connect('bot_data.db')
     c = conn.cursor()
     today = datetime.now().date().isoformat()
@@ -109,15 +117,12 @@ def update_user_daily(user_id, count):
     conn.close()
 
 def increment_user_daily(user_id):
-    """افزایش یک واحد به آمار روزانه کاربر"""
     current = get_user_daily(user_id)
     update_user_daily(user_id, current + 1)
 
 def get_user_messages_count(user_id):
-    """گرفتن تعداد کل پیام‌های کاربر"""
     conn = sqlite3.connect('bot_data.db')
     c = conn.cursor()
-    # ساخت جدول اگر وجود نداشت
     c.execute('''CREATE TABLE IF NOT EXISTS user_messages
                  (user_id INTEGER PRIMARY KEY, count INTEGER)''')
     c.execute("SELECT count FROM user_messages WHERE user_id = ?", (user_id,))
@@ -126,7 +131,6 @@ def get_user_messages_count(user_id):
     return result[0] if result else 0
 
 def increment_user_messages(user_id):
-    """افزایش تعداد پیام‌های کاربر"""
     current = get_user_messages_count(user_id)
     conn = sqlite3.connect('bot_data.db')
     c = conn.cursor()
@@ -136,10 +140,8 @@ def increment_user_messages(user_id):
     conn.close()
 
 def get_user_last_use(user_id):
-    """گرفتن آخرین زمان استفاده کاربر"""
     conn = sqlite3.connect('bot_data.db')
     c = conn.cursor()
-    # ساخت جدول اگر وجود نداشت
     c.execute('''CREATE TABLE IF NOT EXISTS user_last_use
                  (user_id INTEGER PRIMARY KEY, last_use INTEGER)''')
     c.execute("SELECT last_use FROM user_last_use WHERE user_id = ?", (user_id,))
@@ -148,7 +150,6 @@ def get_user_last_use(user_id):
     return result[0] if result else 0
 
 def set_user_last_use(user_id, timestamp):
-    """تنظیم آخرین زمان استفاده کاربر"""
     conn = sqlite3.connect('bot_data.db')
     c = conn.cursor()
     c.execute("INSERT OR REPLACE INTO user_last_use (user_id, last_use) VALUES (?, ?)",
@@ -158,10 +159,8 @@ def set_user_last_use(user_id, timestamp):
 
 # ========== توابع مدیریت ادمین ==========
 def is_admin(user_id):
-    """بررسی ادمین بودن کاربر"""
     conn = sqlite3.connect('bot_data.db')
     c = conn.cursor()
-    # ساخت جدول اگر وجود نداشت
     c.execute('''CREATE TABLE IF NOT EXISTS admins
                  (user_id INTEGER PRIMARY KEY)''')
     c.execute("SELECT user_id FROM admins WHERE user_id = ?", (user_id,))
@@ -170,7 +169,6 @@ def is_admin(user_id):
     return result is not None
 
 def get_all_admins():
-    """دریافت لیست همه ادمین‌ها"""
     conn = sqlite3.connect('bot_data.db')
     c = conn.cursor()
     c.execute("SELECT user_id FROM admins")
@@ -179,7 +177,6 @@ def get_all_admins():
     return results
 
 def add_admin(user_id):
-    """افزودن ادمین جدید"""
     conn = sqlite3.connect('bot_data.db')
     c = conn.cursor()
     c.execute("INSERT OR IGNORE INTO admins (user_id) VALUES (?)", (user_id,))
@@ -187,32 +184,58 @@ def add_admin(user_id):
     conn.close()
 
 def remove_admin(user_id):
-    """حذف ادمین"""
     conn = sqlite3.connect('bot_data.db')
     c = conn.cursor()
     c.execute("DELETE FROM admins WHERE user_id = ?", (user_id,))
     conn.commit()
     conn.close()
 
-# ========== توابع کمکی ==========
+# ========== توابع مدیریت VIP (جدید) ==========
 def is_vip(user_id):
-    return user_id in VIP_USERS
+    conn = sqlite3.connect('bot_data.db')
+    c = conn.cursor()
+    c.execute('''CREATE TABLE IF NOT EXISTS vip_users
+                 (user_id INTEGER PRIMARY KEY)''')
+    c.execute("SELECT user_id FROM vip_users WHERE user_id = ?", (user_id,))
+    result = c.fetchone()
+    conn.close()
+    return result is not None
 
+def get_all_vips():
+    conn = sqlite3.connect('bot_data.db')
+    c = conn.cursor()
+    c.execute("SELECT user_id FROM vip_users")
+    results = [row[0] for row in c.fetchall()]
+    conn.close()
+    return results
+
+def add_vip(user_id):
+    conn = sqlite3.connect('bot_data.db')
+    c = conn.cursor()
+    c.execute("INSERT OR IGNORE INTO vip_users (user_id) VALUES (?)", (user_id,))
+    conn.commit()
+    conn.close()
+
+def remove_vip(user_id):
+    conn = sqlite3.connect('bot_data.db')
+    c = conn.cursor()
+    c.execute("DELETE FROM vip_users WHERE user_id = ?", (user_id,))
+    conn.commit()
+    conn.close()
+
+# ========== توابع کمکی ==========
 def get_daily_limit(user_id):
     return DAILY_LIMIT_VIP if is_vip(user_id) else DAILY_LIMIT_NORMAL
 
 def check_daily_limit(user_id):
-    """بررسی محدودیت روزانه"""
     today_used = get_user_daily(user_id)
     limit = get_daily_limit(user_id)
     return today_used < limit
 
 def hash_phone(phone):
-    """هش کردن شماره تلفن برای مقایسه امن"""
     return hashlib.sha256(phone.encode()).hexdigest()
 
 def is_phone_blocked(phone):
-    """بررسی مسدود بودن شماره با مقایسه هش"""
     phone_hash = hash_phone(phone)
     return phone_hash in BLOCKED_PHONE_HASHES
 
@@ -333,7 +356,7 @@ def global_stats(m):
     
     conn.close()
     
-    vip_count = len(VIP_USERS)
+    vip_count = len(get_all_vips())
     
     msg = f"""📊 **آمار کلی ربات:**
 
@@ -461,14 +484,15 @@ def stop_attack(m):
     else:
         bot.reply_to(m, "❌ حمله فعالی نیست.")
 
-# ========== پنل مدیریت ==========
+# ========== پنل مدیریت (کامل شده) ==========
 @bot.message_handler(func=lambda m: m.text == '👑 پنل مدیریت' and is_admin(m.from_user.id))
 def admin_panel(m):
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
     markup.add('📊 آمار مدیریت', '📋 لیست VIPها', '🔴 خاموش/روشن', '📋 گزارش کاربران')
-    markup.add('👥 مدیریت ادمین‌ها', '🔙 برگشت')
+    markup.add('👥 مدیریت ادمین‌ها', '⭐ مدیریت VIPها', '🔙 برگشت')
     bot.reply_to(m, "👑 پنل مدیریت:", reply_markup=markup)
 
+# ========== آمار مدیریت ==========
 @bot.message_handler(func=lambda m: m.text == '📊 آمار مدیریت' and is_admin(m.from_user.id))
 def admin_stats(m):
     conn = sqlite3.connect('bot_data.db')
@@ -491,7 +515,7 @@ def admin_stats(m):
     
     active_attacks_count = len([x for x in active_attacks.values() if x])
     status = "✅ فعال" if bot_active else "❌ غیرفعال"
-    vip_count = len(VIP_USERS)
+    vip_count = len(get_all_vips())
     admins = get_all_admins()
     admin_count = len(admins)
     
@@ -509,18 +533,21 @@ def admin_stats(m):
 """
     bot.reply_to(m, msg, parse_mode="Markdown")
 
+# ========== لیست VIPها ==========
 @bot.message_handler(func=lambda m: m.text == '📋 لیست VIPها' and is_admin(m.from_user.id))
 def vip_list(m):
-    if not VIP_USERS:
+    vips = get_all_vips()
+    if not vips:
         bot.reply_to(m, "📋 لیست VIPها خالی هست.")
         return
     
     text = "📋 **لیست VIPها:**\n\n"
-    for uid in VIP_USERS:
-        text += f"👤 `{uid}`\n"
+    for uid in vips:
+        text += f"⭐ `{uid}`\n"
     text += f"\n👑 {CREATOR_USERNAME}"
     bot.reply_to(m, text, parse_mode="Markdown")
 
+# ========== خاموش/روشن کردن ربات ==========
 @bot.message_handler(func=lambda m: m.text == '🔴 خاموش/روشن' and is_admin(m.from_user.id))
 def admin_toggle(m):
     global bot_active
@@ -528,6 +555,7 @@ def admin_toggle(m):
     status = "روشن" if bot_active else "خاموش"
     bot.reply_to(m, f"✅ ربات {status} شد.")
 
+# ========== گزارش کاربران ==========
 @bot.message_handler(func=lambda m: m.text == '📋 گزارش کاربران' and is_admin(m.from_user.id))
 def admin_users(m):
     conn = sqlite3.connect('bot_data.db')
@@ -553,6 +581,26 @@ def manage_admins(m):
     markup.add('➕ افزودن ادمین', '➖ حذف ادمین', '📋 لیست ادمین‌ها', '🔙 برگشت')
     bot.reply_to(m, "👥 مدیریت ادمین‌ها:", reply_markup=markup)
 
+# ========== مدیریت VIPها (جدید) ==========
+@bot.message_handler(func=lambda m: m.text == '⭐ مدیریت VIPها' and is_admin(m.from_user.id))
+def manage_vips(m):
+    markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
+    markup.add('➕ افزودن VIP', '➖ حذف VIP', '📋 لیست VIPها', '🔙 برگشت')
+    bot.reply_to(m, "⭐ مدیریت VIPها:", reply_markup=markup)
+
+# ========== افزودن VIP ==========
+@bot.message_handler(func=lambda m: m.text == '➕ افزودن VIP' and is_admin(m.from_user.id))
+def add_vip_start(m):
+    msg = bot.reply_to(m, "🔹 **آیدی عددی کاربر مورد نظر را وارد کنید:**", parse_mode="Markdown")
+    user_states[m.chat.id] = ("waiting_for_add_vip", msg.message_id)
+
+# ========== حذف VIP ==========
+@bot.message_handler(func=lambda m: m.text == '➖ حذف VIP' and is_admin(m.from_user.id))
+def remove_vip_start(m):
+    msg = bot.reply_to(m, "🔹 **آیدی عددی VIP مورد نظر را وارد کنید:**", parse_mode="Markdown")
+    user_states[m.chat.id] = ("waiting_for_remove_vip", msg.message_id)
+
+# ========== لیست ادمین‌ها ==========
 @bot.message_handler(func=lambda m: m.text == '📋 لیست ادمین‌ها' and is_admin(m.from_user.id))
 def list_admins(m):
     admins = get_all_admins()
@@ -566,17 +614,22 @@ def list_admins(m):
     text += f"\n👑 {CREATOR_USERNAME}"
     bot.reply_to(m, text, parse_mode="Markdown")
 
+# ========== افزودن ادمین ==========
 @bot.message_handler(func=lambda m: m.text == '➕ افزودن ادمین' and is_admin(m.from_user.id))
 def add_admin_start(m):
     msg = bot.reply_to(m, "🔹 **آیدی عددی کاربر مورد نظر را وارد کنید:**", parse_mode="Markdown")
     user_states[m.chat.id] = ("waiting_for_add_admin", msg.message_id)
 
+# ========== حذف ادمین ==========
 @bot.message_handler(func=lambda m: m.text == '➖ حذف ادمین' and is_admin(m.from_user.id))
 def remove_admin_start(m):
     msg = bot.reply_to(m, "🔹 **آیدی عددی ادمین مورد نظر را وارد کنید:**", parse_mode="Markdown")
     user_states[m.chat.id] = ("waiting_for_remove_admin", msg.message_id)
 
-@bot.message_handler(func=lambda m: user_states.get(m.chat.id) and user_states[m.chat.id][0] in ["waiting_for_add_admin", "waiting_for_remove_admin"])
+# ========== هندلر ورودی‌های عددی برای مدیریت ==========
+@bot.message_handler(func=lambda m: user_states.get(m.chat.id) and user_states[m.chat.id][0] in 
+                     ["waiting_for_add_admin", "waiting_for_remove_admin", 
+                      "waiting_for_add_vip", "waiting_for_remove_vip"])
 def handle_admin_edit(m):
     state = user_states.get(m.chat.id)
     if not state:
@@ -588,19 +641,27 @@ def handle_admin_edit(m):
         return
     
     target_id = int(user_id_str)
+    action = state[0]
     
-    if state[0] == "waiting_for_add_admin":
+    if action == "waiting_for_add_admin":
         add_admin(target_id)
         bot.reply_to(m, f"✅ کاربر {target_id} با موفقیت به ادمین‌ها اضافه شد.")
-    elif state[0] == "waiting_for_remove_admin":
+    elif action == "waiting_for_remove_admin":
         if target_id in ADMIN_IDS:
             bot.reply_to(m, "❌ این کاربر جزو ادمین‌های ثابت است و قابل حذف نیست.")
         else:
             remove_admin(target_id)
             bot.reply_to(m, f"✅ کاربر {target_id} از ادمین‌ها حذف شد.")
+    elif action == "waiting_for_add_vip":
+        add_vip(target_id)
+        bot.reply_to(m, f"✅ کاربر {target_id} با موفقیت به VIPها اضافه شد.")
+    elif action == "waiting_for_remove_vip":
+        remove_vip(target_id)
+        bot.reply_to(m, f"✅ کاربر {target_id} از VIPها حذف شد.")
     
     del user_states[m.chat.id]
 
+# ========== برگشت ==========
 @bot.message_handler(func=lambda m: m.text == '🔙 برگشت' and is_admin(m.from_user.id))
 def admin_back(m):
     start(m)
@@ -650,8 +711,9 @@ def fallback(m):
     valid_buttons = ['🚀 حمله جدید', '📊 وضعیت من', '📈 آمار کلی', '⛔ توقف حمله', 
                      '📞 ارتباط با سازنده', '👑 پنل مدیریت', '📊 آمار مدیریت', 
                      '📋 لیست VIPها', '🔴 خاموش/روشن', '📋 گزارش کاربران', 
-                     '👥 مدیریت ادمین‌ها', '➕ افزودن ادمین', '➖ حذف ادمین', 
-                     '📋 لیست ادمین‌ها', '🔙 برگشت']
+                     '👥 مدیریت ادمین‌ها', '⭐ مدیریت VIPها', '➕ افزودن ادمین', 
+                     '➖ حذف ادمین', '📋 لیست ادمین‌ها', '➕ افزودن VIP', 
+                     '➖ حذف VIP', '🔙 برگشت']
     
     if m.text in valid_buttons:
         return
@@ -663,16 +725,14 @@ app = Flask(__name__)
 
 # ========== تابع بیدار ماندن خودکار ==========
 def keep_alive():
-    """هر ۱۰ دقیقه یه بار به خودش پینگ می‌زنه"""
     while True:
         try:
             requests.get("https://top-topy-bot.onrender.com", timeout=10)
             print("✅ پینگ ارسال شد - ربات بیدار موند")
         except Exception as e:
             print(f"❌ خطا در پینگ: {e}")
-        time.sleep(600)  # ۱۰ دقیقه
+        time.sleep(600)
 
-# اجرای تابع بیدار ماندن در یک نخ جداگانه
 threading.Thread(target=keep_alive, daemon=True).start()
 
 @app.route('/webhook', methods=['POST'])
@@ -702,7 +762,6 @@ def index():
 
 # ========== اجرا ==========
 if __name__ == "__main__":
-    # ایجاد دیتابیس
     init_database()
     
     print("🤖 ربات با SQLite راه‌اندازی شد")
