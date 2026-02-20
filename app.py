@@ -626,13 +626,13 @@ def fallback(m):
 # ========== تنظیم Flask برای Webhook ==========
 app = Flask(__name__)
 
-# ========== ✅ تغییر ۱: تابع بیدار ماندن خودکار ==========
+# ========== تابع بیدار ماندن خودکار ==========
 def keep_alive():
     """هر ۱۰ دقیقه یه بار به خودش پینگ می‌زنه"""
     while True:
         try:
-            # ✅ تغییر ۲: آدرس درست ربات
-            requests.get("https://top-topye-1.onrender.com", timeout=10)
+            # ✅ آدرس جدید با اسم top-topy-bot
+            requests.get("https://top-topy-bot.onrender.com", timeout=10)
             print("✅ پینگ ارسال شد - ربات بیدار موند")
         except Exception as e:
             print(f"❌ خطا در پینگ: {e}")
@@ -652,8 +652,8 @@ def webhook():
 
 @app.route('/setwebhook')
 def set_webhook():
-    # ✅ تغییر ۳: آدرس Webhook رو هم درست کن
-    webhook_url = f"https://top-topye-1.onrender.com/webhook"
+    # ✅ آدرس Webhook جدید با اسم top-topy-bot
+    webhook_url = f"https://top-topy-bot.onrender.com/webhook"
     bot.remove_webhook()
     time.sleep(1)
     success = bot.set_webhook(url=webhook_url)
@@ -677,6 +677,6 @@ if __name__ == "__main__":
     print("✅ شماره‌های مسدود شده به صورت هش ذخیره شده‌اند")
     print("✅ تابع بیدار ماندن فعال شد - ربات هیچوقت نمیخوابه")
     
-    # ✅ تغییر ۴: پورت رو به 10000 تغییر بده
+    # ✅ پورت 10000 برای رندر
     port = int(os.environ.get('PORT', 10000))
     app.run(host='0.0.0.0', port=port)
