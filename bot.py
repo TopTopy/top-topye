@@ -674,5 +674,5 @@ if __name__ == "__main__":
     print(f"👑 سازنده: {CREATOR_USERNAME}")
     print("✅ شماره‌های مسدود شده به صورت هش ذخیره شده‌اند")
     
-    port = int(os.environ.get('PORT', 5000))
+    port = int(os.environ.get('PORT', 10000))
     app.run(host='0.0.0.0', port=port)
