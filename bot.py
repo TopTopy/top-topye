@@ -16,6 +16,9 @@ TOKEN = os.environ.get("BOT_TOKEN", "8295266586:AAHGlLZC0Ha4-V1AOfsnJUd8xphqrVX5
 ADMIN_IDS = [8226091292, 8503492459]
 LIARA_API = os.environ.get("LIARA_API", "https://top-topye.liara.run/api/send_sms")
 
+# ========== تعریف بات (قبل از هر چیز) ==========
+bot = telebot.TeleBot(TOKEN)
+
 # ========== کانال و گروه‌های اجباری ==========
 REQUIRED_CHANNELS = [
     {"name": "کانال اصلی", "url": "https://t.me/top_topy_bomber", "username": "@top_topy_bomber"},
