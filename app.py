@@ -30,6 +30,7 @@ BLOCKED_PHONE_HASHES = [
     "5e884898da28047151d0e56f8dc6292773603d0d6aabbdd62a11ef721d1542d8"
 ]
 
+# ========== متغیرها ==========
 user_states = {}
 active_attacks = {}
 DAILY_LIMIT_NORMAL = 5
@@ -1695,14 +1696,41 @@ def set_webhook():
     except Exception as e:
         return f"❌ Error: {str(e)}", 500
 
+# ========== تابع وب‌هوک با لاگ کامل ==========
 @app.route('/webhook', methods=['POST'])
 def webhook():
+    print("="*50)
+    print(f"📨 Webhook received at: {datetime.now()}")
+    print(f"📌 Headers: {dict(request.headers)}")
+    
     if request.headers.get('content-type') == 'application/json':
-        json_string = request.get_data().decode('utf-8')
-        update = telebot.types.Update.de_json(json_string)
-        bot.process_new_updates([update])
-        return 'OK', 200
-    return 'Forbidden', 403
+        try:
+            json_string = request.get_data().decode('utf-8')
+            print(f"📦 Data received: {json_string[:500]}...")  # چاپ 500 کاراکتر اول
+            
+            update = telebot.types.Update.de_json(json_string)
+            print(f"🔄 Update type: {type(update)}")
+            print(f"🆔 Update ID: {update.update_id}")
+            
+            if update.message:
+                print(f"💬 Message from: {update.message.from_user.id} - {update.message.text}")
+            elif update.callback_query:
+                print(f"🔄 Callback query from: {update.callback_query.from_user.id}")
+            
+            # پردازش آپدیت
+            bot.process_new_updates([update])
+            print("✅ Update processed successfully")
+            
+            return 'OK', 200
+        except Exception as e:
+            print(f"❌ Error processing update: {e}")
+            import traceback
+            traceback.print_exc()
+            return 'Error', 500
+    else:
+        print(f"❌ Invalid content-type: {request.headers.get('content-type')}")
+        return 'Forbidden', 403
+    print("="*50)
 
 # ========== تابع بیدار ماندن ==========
 def keep_alive():
