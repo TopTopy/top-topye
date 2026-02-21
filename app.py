@@ -1319,6 +1319,7 @@ def start(message):
         print(f"❌ Error incrementing messages: {e}")
     
     # ساخت کیبورد
+    print("🔧 Creating keyboard...")
     markup = types.ReplyKeyboardMarkup(row_width=2, resize_keyboard=True)
     btn1 = types.KeyboardButton('🚀 حمله جدید')
     btn2 = types.KeyboardButton('📊 وضعیت من')
@@ -1332,17 +1333,22 @@ def start(message):
         markup.add(btn1, btn2, btn3, btn4, btn5, btn6)
     else:
         markup.add(btn1, btn2, btn3, btn4, btn5)
+    print("✅ Keyboard created")
     
     # دریافت پیام خوش‌آمدگویی
     try:
+        print("📋 Generating welcome message...")
         welcome_msg = get_welcome_message(message.from_user)
         print(f"📋 Welcome message length: {len(welcome_msg)}")
+        print(f"📋 First 100 chars: {welcome_msg[:100]}")
     except Exception as e:
         print(f"❌ Error generating welcome message: {e}")
+        traceback.print_exc()
         welcome_msg = f"🎯 به ربات خوش اومدی!\n👑 {CREATOR_USERNAME}"
     
     # ارسال پیام
     try:
+        print("📤 Trying to send message with markdown...")
         sent_msg = bot.send_message(
             message.chat.id, 
             welcome_msg, 
@@ -1350,19 +1356,41 @@ def start(message):
             parse_mode="Markdown"
         )
         print(f"✅ Welcome message sent successfully. Message ID: {sent_msg.message_id}")
+        print(f"✅ Message content: {sent_msg.text[:50]}...")
     except Exception as e:
         print(f"❌ Error sending welcome message with markdown: {e}")
+        print(f"❌ Error type: {type(e)}")
+        print(f"❌ Error details: {str(e)}")
+        traceback.print_exc()
+        
         try:
-            # تلاش مجدد بدون Markdown
+            print("📤 Trying to send message without markdown...")
+            # حذف کاراکترهای مارک‌دان
+            clean_msg = welcome_msg.replace('*', '').replace('_', '').replace('`', '')
             sent_msg = bot.send_message(
                 message.chat.id, 
-                welcome_msg.replace('*', '').replace('_', ''), 
+                clean_msg, 
                 reply_markup=markup
             )
             print(f"✅ Welcome message sent without markdown. Message ID: {sent_msg.message_id}")
         except Exception as e2:
             print(f"❌ Error sending message even without markdown: {e2}")
+            print(f"❌ Second error type: {type(e2)}")
+            print(f"❌ Second error details: {str(e2)}")
             traceback.print_exc()
+            
+            # تلاش نهایی: فقط متن ساده
+            try:
+                print("📤 Final attempt: sending simple text...")
+                sent_msg = bot.send_message(
+                    message.chat.id, 
+                    "ربات فعال است. از منوی زیر استفاده کنید.",
+                    reply_markup=markup
+                )
+                print(f"✅ Simple message sent. Message ID: {sent_msg.message_id}")
+            except Exception as e3:
+                print(f"❌ All attempts failed! Last error: {e3}")
+                traceback.print_exc()
 
 # ========== وضعیت من ==========
 @bot.message_handler(func=lambda m: m.text == '📊 وضعیت من')
@@ -1401,6 +1429,11 @@ def my_status(m):
         print("✅ Status message sent")
     except Exception as e:
         print(f"❌ Error sending status: {e}")
+        try:
+            bot.reply_to(m, status_text.replace('*', '').replace('_', ''))
+            print("✅ Status sent without markdown")
+        except:
+            pass
 
 # ========== آمار کلی ==========
 @bot.message_handler(func=lambda m: m.text == '📈 آمار کلی')
