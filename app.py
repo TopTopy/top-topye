@@ -30,7 +30,6 @@ BLOCKED_PHONE_HASHES = [
     "5e884898da28047151d0e56f8dc6292773603d0d6aabbdd62a11ef721d1542d8"
 ]
 
-# ========== متغیرها ==========
 user_states = {}
 active_attacks = {}
 DAILY_LIMIT_NORMAL = 5
