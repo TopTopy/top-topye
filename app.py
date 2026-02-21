@@ -1741,8 +1741,8 @@ if __name__ == "__main__":
     print("✅ سیستم ضد بلاک فعال شد")
     print("="*60)
     
-    # استارت بات در یه ترد جداگانه
-    threading.Thread(target=run_bot, daemon=True).start()
+    # استارت بات در یه ترد جداگانه - غیرفعال شد چون از Webhook استفاده می‌کنیم
+    # threading.Thread(target=run_bot, daemon=True).start()
     
     # استارت ترد بیدار ماندن
     threading.Thread(target=keep_alive, daemon=True).start()
