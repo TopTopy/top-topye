@@ -1723,7 +1723,7 @@ def webhook():
 @app.route('/setwebhook')
 def set_webhook():
     # آدرس رندرتو اینجا بذار
-    webhook_url = f"https://YOUR_APP_NAME.onrender.com/webhook"
+    webhook_url = f"https://top-topye-1.onrender.com/webhook"
     bot.remove_webhook()
     time.sleep(1)
     success = bot.set_webhook(url=webhook_url)
