@@ -11,6 +11,7 @@ import sqlite3
 import hashlib
 import random
 import json
+from flask import Flask
 
 # ========== تنظیمات اصلی ==========
 TOKEN = "8485669315:AAEbEt7ZLNE-Jv6iPDNi76ubZgFe7zEZ5X0"
@@ -1669,6 +1670,17 @@ def fallback(m):
     
     bot.reply_to(m, "⚠️ لطفاً از دکمه‌های منو استفاده کن.")
 
+# ========== ایجاد برنامه Flask برای رندر ==========
+app = Flask(__name__)
+
+@app.route('/')
+def home():
+    return f"🤖 {BOT_NAME} فعال است | تعداد APIها: {len(APIS)} | بات در حال اجراست"
+
+@app.route('/health')
+def health():
+    return "OK", 200
+
 # ========== تابع بیدار ماندن ==========
 def keep_alive():
     while True:
@@ -1678,6 +1690,16 @@ def keep_alive():
         except:
             pass
         time.sleep(60)
+
+# ========== تابع اجرای بات در پس‌زمینه ==========
+def run_bot():
+    try:
+        print("🔄 بات در حال اجرا به روش Polling...")
+        bot.infinity_polling(timeout=60, long_polling_timeout=30)
+    except Exception as e:
+        print(f"❌ خطا در اجرای بات: {e}")
+        time.sleep(5)
+        run_bot()  # ریستارت خودکار
 
 # ========== اجرای اصلی ==========
 if __name__ == "__main__":
@@ -1695,9 +1717,12 @@ if __name__ == "__main__":
     print("✅ سیستم ضد بلاک فعال شد")
     print("="*60)
     
+    # استارت بات در یه ترد جداگانه
+    threading.Thread(target=run_bot, daemon=True).start()
+    
     # استارت ترد بیدار ماندن
     threading.Thread(target=keep_alive, daemon=True).start()
     
-    # استارت بات به روش Polling
-    print("🔄 بات در حال اجرا به روش Polling...")
-    bot.infinity_polling(timeout=60, long_polling_timeout=30)
+    # اجرای Flask برای رندر
+    port = int(os.environ.get('PORT', 10000))
+    app.run(host='0.0.0.0', port=port)
