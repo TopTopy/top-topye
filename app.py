@@ -37,7 +37,6 @@ DAILY_LIMIT_NORMAL = 5
 DAILY_LIMIT_VIP = 20
 bot_active = True
 
-# ========== لیست کامل APIها (۱۴۳ تا) ==========
 APIS = [
     # ========== APIهای اصلی ==========
     {
@@ -919,7 +918,6 @@ APIS = [
         "data": {"phone": "PHONE_NUMBER"}
     }
 ]
-
 # ========== توابع کمکی برای APIها ==========
 def get_random_user_agent():
     agents = [
@@ -1274,17 +1272,28 @@ def get_welcome_message(user):
 🔽 برای شروع از دکمه‌های زیر استفاده کن.
 """
 
-# ========== استارت ==========
+# ========== استارت با لاگ کامل ==========
 @bot.message_handler(commands=['start'])
 def start(message):
+    print(f"\n🚀 Start function called at {datetime.now()}")
+    print(f"📝 Message text: {message.text}")
+    print(f"👤 User ID: {message.from_user.id}")
+    print(f"👤 User Name: {message.from_user.first_name}")
+    print(f"👤 Username: {message.from_user.username}")
+    
     global bot_active
     user_id = message.from_user.id
     
     if not bot_active and not is_admin(user_id):
+        print("⛔ Bot is inactive, rejecting message")
         bot.reply_to(message, "⛔ ربات در حال حاضر غیرفعال است.")
         return
     
-    increment_user_messages(user_id)
+    try:
+        increment_user_messages(user_id)
+        print("✅ User message count incremented")
+    except Exception as e:
+        print(f"❌ Error incrementing messages: {e}")
     
     markup = types.ReplyKeyboardMarkup(row_width=2, resize_keyboard=True)
     btn1 = types.KeyboardButton('🚀 حمله جدید')
@@ -1294,12 +1303,24 @@ def start(message):
     btn5 = types.KeyboardButton('📞 ارتباط با سازنده')
     
     if is_admin(user_id):
+        print("👑 User is admin, showing admin panel button")
         btn6 = types.KeyboardButton('👑 پنل مدیریت')
         markup.add(btn1, btn2, btn3, btn4, btn5, btn6)
     else:
         markup.add(btn1, btn2, btn3, btn4, btn5)
     
-    bot.send_message(message.chat.id, get_welcome_message(message.from_user), reply_markup=markup, parse_mode="Markdown")
+    try:
+        welcome_msg = get_welcome_message(message.from_user)
+        bot.send_message(message.chat.id, welcome_msg, reply_markup=markup, parse_mode="Markdown")
+        print("✅ Welcome message sent successfully")
+    except Exception as e:
+        print(f"❌ Error sending welcome message: {e}")
+        try:
+            # تلاش مجدد بدون Markdown
+            bot.send_message(message.chat.id, welcome_msg.replace('*', ''), reply_markup=markup)
+            print("✅ Welcome message sent without markdown")
+        except Exception as e2:
+            print(f"❌ Error sending message even without markdown: {e2}")
 
 # ========== وضعیت من ==========
 @bot.message_handler(func=lambda m: m.text == '📊 وضعیت من')
@@ -1706,7 +1727,7 @@ def webhook():
     if request.headers.get('content-type') == 'application/json':
         try:
             json_string = request.get_data().decode('utf-8')
-            print(f"📦 Data received: {json_string[:500]}...")  # چاپ 500 کاراکتر اول
+            print(f"📦 Data received: {json_string[:500]}...")
             
             update = telebot.types.Update.de_json(json_string)
             print(f"🔄 Update type: {type(update)}")
@@ -1717,7 +1738,6 @@ def webhook():
             elif update.callback_query:
                 print(f"🔄 Callback query from: {update.callback_query.from_user.id}")
             
-            # پردازش آپدیت
             bot.process_new_updates([update])
             print("✅ Update processed successfully")
             
@@ -1730,7 +1750,6 @@ def webhook():
     else:
         print(f"❌ Invalid content-type: {request.headers.get('content-type')}")
         return 'Forbidden', 403
-    print("="*50)
 
 # ========== تابع بیدار ماندن ==========
 def keep_alive():
@@ -1741,16 +1760,6 @@ def keep_alive():
         except:
             pass
         time.sleep(60)
-
-# ========== تابع اجرای بات در پس‌زمینه ==========
-def run_bot():
-    try:
-        print("🔄 بات در حال اجرا به روش Polling...")
-        bot.infinity_polling(timeout=60, long_polling_timeout=30)
-    except Exception as e:
-        print(f"❌ خطا در اجرای بات: {e}")
-        time.sleep(5)
-        run_bot()  # ریستارت خودکار
 
 # ========== اجرای اصلی ==========
 if __name__ == "__main__":
@@ -1767,9 +1776,6 @@ if __name__ == "__main__":
     print(f"📡 تعداد APIها: {len(APIS)}")
     print("✅ سیستم ضد بلاک فعال شد")
     print("="*60)
-    
-    # استارت بات در یه ترد جداگانه - غیرفعال شد چون از Webhook استفاده می‌کنیم
-    # threading.Thread(target=run_bot, daemon=True).start()
     
     # استارت ترد بیدار ماندن
     threading.Thread(target=keep_alive, daemon=True).start()
