@@ -37,6 +37,7 @@ DAILY_LIMIT_NORMAL = 5
 DAILY_LIMIT_VIP = 20
 bot_active = True
 
+# ========== لیست کامل APIها (۱۴۳ تا) ==========
 APIS = [
     # ========== APIهای اصلی ==========
     {
@@ -918,6 +919,7 @@ APIS = [
         "data": {"phone": "PHONE_NUMBER"}
     }
 ]
+
 # ========== توابع کمکی برای APIها ==========
 def get_random_user_agent():
     agents = [
@@ -1696,7 +1698,15 @@ app = Flask(__name__)
 
 @app.route('/')
 def home():
-    return f"🤖 {BOT_NAME} فعال است | تعداد APIها: {len(APIS)} | بات در حال اجراست"
+    try:
+        api_count = len(APIS) if APIS else 0
+        return f"🤖 {BOT_NAME} فعال است | تعداد APIها: {api_count} | بات در حال اجراست"
+    except Exception as e:
+        return f"❌ خطا: {str(e)}", 500
+
+@app.route('/test')
+def test():
+    return "✅ ربات در حال اجراست", 200
 
 @app.route('/health')
 def health():
