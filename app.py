@@ -11,7 +11,7 @@ import sqlite3
 import hashlib
 import random
 import json
-from flask import Flask
+from flask import Flask, request
 
 # ========== تنظیمات اصلی ==========
 TOKEN = "8485669315:AAEbEt7ZLNE-Jv6iPDNi76ubZgFe7zEZ5X0"
@@ -37,7 +37,7 @@ DAILY_LIMIT_NORMAL = 5
 DAILY_LIMIT_VIP = 20
 bot_active = True
 
-# ========== لیست کامل APIها ==========
+# ========== لیست کامل APIها (۱۴۳ تا) ==========
 APIS = [
     # ========== APIهای اصلی ==========
     {
@@ -1680,6 +1680,30 @@ def home():
 @app.route('/health')
 def health():
     return "OK", 200
+
+@app.route('/setwebhook')
+def set_webhook():
+    try:
+        webhook_url = "https://top-topye-1.onrender.com/webhook"
+        bot.remove_webhook()
+        time.sleep(1)
+        success = bot.set_webhook(url=webhook_url)
+        
+        if success:
+            return f"✅ Webhook set to {webhook_url}", 200
+        else:
+            return "❌ Failed to set webhook", 400
+    except Exception as e:
+        return f"❌ Error: {str(e)}", 500
+
+@app.route('/webhook', methods=['POST'])
+def webhook():
+    if request.headers.get('content-type') == 'application/json':
+        json_string = request.get_data().decode('utf-8')
+        update = telebot.types.Update.de_json(json_string)
+        bot.process_new_updates([update])
+        return 'OK', 200
+    return 'Forbidden', 403
 
 # ========== تابع بیدار ماندن ==========
 def keep_alive():
