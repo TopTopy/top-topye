@@ -1392,6 +1392,22 @@ def start(message):
                 print(f"❌ All attempts failed! Last error: {e3}")
                 traceback.print_exc()
 
+# ========== هندلر تست برای همه پیام‌ها (مهم برای تشخیص مشکل) ==========
+@bot.message_handler(func=lambda m: True)
+def echo_all(message):
+    print(f"\n{'='*50}")
+    print(f"📢 ECHO function called at {datetime.now()}")
+    print(f"📝 Message: {message.text}")
+    print(f"👤 From: {message.from_user.id}")
+    print(f"💬 Chat: {message.chat.id}")
+    
+    try:
+        bot.reply_to(message, f"پیام شما دریافت شد: {message.text}")
+        print("✅ Echo reply sent successfully")
+    except Exception as e:
+        print(f"❌ Echo error: {e}")
+        traceback.print_exc()
+
 # ========== وضعیت من ==========
 @bot.message_handler(func=lambda m: m.text == '📊 وضعیت من')
 def my_status(m):
@@ -1768,23 +1784,6 @@ def handle_contact_message(m):
     
     bot.reply_to(m, f"✅ پیامت با موفقیت ارسال شد. به زودی پاسخ می‌دم.\n👑 {CREATOR_USERNAME}")
 
-# ========== پیام‌های ناشناخته ==========
-@bot.message_handler(func=lambda m: True)
-def fallback(m):
-    if user_states.get(m.chat.id):
-        return
-    
-    valid_buttons = ['🚀 حمله جدید', '📊 وضعیت من', '📈 آمار کلی', '⛔ توقف حمله', 
-                     '📞 ارتباط با سازنده', '👑 پنل مدیریت', '📊 آمار مدیریت', 
-                     '📋 لیست VIPها', '🔴 خاموش/روشن', '👥 مدیریت ادمین‌ها', 
-                     '⭐ مدیریت VIPها', '➕ افزودن ادمین', '➖ حذف ادمین', 
-                     '📋 لیست ادمین‌ها', '➕ افزودن VIP', '➖ حذف VIP', '🔙 برگشت']
-    
-    if m.text in valid_buttons:
-        return
-    
-    bot.reply_to(m, "⚠️ لطفاً از دکمه‌های منو استفاده کن.")
-
 # ========== ایجاد برنامه Flask برای رندر ==========
 app = Flask(__name__)
 
@@ -1840,6 +1839,7 @@ def webhook():
             elif update.callback_query:
                 print(f"🔄 Callback query from: {update.callback_query.from_user.id}")
             
+            print(f"🤖 Processing update with bot: {bot}")
             bot.process_new_updates([update])
             print("✅ Update processed successfully")
             
