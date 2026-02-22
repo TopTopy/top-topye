@@ -1,5 +1,5 @@
 services:
-  - type: worker
+  - type: web
     name: telegram-sms-bomber
     runtime: python
     plan: free
