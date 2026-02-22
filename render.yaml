@@ -1,7 +1,15 @@
 services:
-  - type: web
-    name: telegram-sms-bomber
+  # تعریف سرویس از نوع Worker
+  - type: worker
+    name: telegram-bomber-worker
     runtime: python
+    # پلن رایگان
     plan: free
+    # منطقه (می‌تونی تغییر بدی)
+    region: frankfurt
+    # شاخه گیت‌هاب
+    branch: main
+    # دستور ساخت (همون که توی لاگ موفق بوده)
     buildCommand: pip install -r requirements.txt
+    # ✅ دستور درست برای اجرا - مستقیماً فایل پایتون
     startCommand: python app.py
