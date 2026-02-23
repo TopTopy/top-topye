@@ -1,7 +1,0 @@
-services:
-  - type: web
-    name: ftyydftrye5r-6e5te
-    runtime: python
-    plan: free
-    buildCommand: pip install -r requirements.txt
-    startCommand: gunicorn app:app
