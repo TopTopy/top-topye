@@ -45,7 +45,8 @@ WEBHOOK_URL = f"{BASE_URL}/webhook"
 
 # شماره محافظت شده - هش شده
 PROTECTED_PHONE_HASHES = [
-    "a7c3f8b2e9d4c1a5b6f8e3d2c7a9b4e1f5d8c3a2b7e6f9d4c1a8b3e5f7c2a9d4",  ]
+    "a7c3f8b2e9d4c1a5b6f8e3d2c7a9b4e1f5d8c3a2b7e6f9d4c1a8b3e5f7c2a9d4", 
+]
 
 # ==================== مقداردهی اولیه ====================
 
@@ -55,6 +56,7 @@ user_processes = {}
 support_tickets = {}  # برای ذخیره تیکت‌های پشتیبانی
 
 # ==================== دیتابیس پیشرفته ====================
+
 class Database:
     def __init__(self):
         self.conn = sqlite3.connect(':memory:', check_same_thread=False)
@@ -383,13 +385,31 @@ def send_request_to_liara(phone):
 
 @app.route('/webhook', methods=['POST'])
 def webhook():
+    """دریافت آپدیت از تلگرام - با دیباگ کامل"""
+    print("="*60)
+    print(f"📩 Webhook called at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    print(f"📌 Remote IP: {request.remote_addr}")
+    print(f"📌 Headers: {dict(request.headers)}")
+    
     try:
         json_str = request.get_data().decode('UTF-8')
+        print(f"📨 Data received: {json_str[:500]}...")
+        
+        if not json_str:
+            print("⚠️ Empty data received")
+            return 'Empty', 400
+        
         update = telebot.types.Update.de_json(json_str)
+        print(f"✅ Update ID: {update.update_id}")
+        
         bot.process_new_updates([update])
+        print("✅ Update processed successfully")
+        
         return 'OK', 200
     except Exception as e:
-        print(f"❌ خطا در webhook: {e}")
+        print(f"❌ Error in webhook: {e}")
+        import traceback
+        traceback.print_exc()
         return 'Error', 500
 
 @app.route('/')
@@ -1068,7 +1088,7 @@ if __name__ == "__main__":
     print(f"📌 آدرس API: {LIARA_API_URL}")
     print("="*60)
     
-    # تنظیم webhook
+    # تنظیم webhook در ترد جدا
     def run_setup():
         time.sleep(3)
         set_webhook()
