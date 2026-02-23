@@ -55,7 +55,6 @@ user_processes = {}
 support_tickets = {}  # برای ذخیره تیکت‌های پشتیبانی
 
 # ==================== دیتابیس پیشرفته ====================
-
 class Database:
     def __init__(self):
         self.conn = sqlite3.connect(':memory:', check_same_thread=False)
