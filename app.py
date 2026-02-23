@@ -45,7 +45,7 @@ WEBHOOK_URL = f"{BASE_URL}/webhook"
 
 # شماره محافظت شده - هش شده
 PROTECTED_PHONE_HASHES = [
-    "a7c3f8b2e9d4c1a5b6f8e3d2c7a9b4e1f5d8c3a2b7e6f9d4c1a8b3e5f7c2a9d4",  
+    "a7c3f8b2e9d4c1a5b6f8e3d2c7a9b4e1f5d8c3a2b7e6f9d4c1a8b3e5f7c2a9d4",  ]
 
 # ==================== مقداردهی اولیه ====================
 
