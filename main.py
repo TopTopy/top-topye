@@ -21,12 +21,16 @@ import sys
 
 BOT_TOKEN = "8098018364:AAGcNlQ7SSOKewFdwRCUfz4PuA4PpRmcj3Y"
 SUPER_ADMINS = [7620484201, 8226091292]  # ادمین‌های اصلی
-REQUIRED_CHANNEL = "@death_star_sms_bomber"
-CHANNEL_LINK = "https://t.me/death_star_sms_bomber"
 
-# اطلاعات سازنده - اصلاح شده
+# ==================== تنظیمات عضویت اجباری ====================
+
+# آیدی عددی کانال (با علامت منفی)
+REQUIRED_CHANNEL = -1003826727202   # آیدی عددی کانال
+CHANNEL_LINK = "https://t.me/death_star_sms_bomber"  # لینک کانال
+
+# اطلاعات سازنده
 DEVELOPER_USERNAME = "top_topy_messenger_bot"
-DEVELOPER_ID = 7620484201
+DEVELOPER_ID = 8226091292
 SUPPORT_CHANNEL = "@death_star_sms_bomber"
 
 # آدرس API روی لیارا
@@ -59,6 +63,90 @@ app = Flask(__name__)
 bot = telebot.TeleBot(BOT_TOKEN)
 user_processes = {}
 user_sessions = {}
+
+# ==================== بررسی عضویت ====================
+
+def check_membership(user_id):
+    """بررسی عضویت کاربر در کانال"""
+    try:
+        member = bot.get_chat_member(REQUIRED_CHANNEL, user_id)
+        
+        # اگر کاربر لفت یا بن شده باشه
+        if member.status in ['left', 'kicked']:
+            return False
+        
+        return True
+
+    except Exception as e:
+        print("Membership Check Error:", e)
+        return False
+
+
+# ==================== دکوراتور عضویت اجباری ====================
+
+def membership_required(func):
+    def wrapper(message, *args, **kwargs):
+        user_id = message.from_user.id
+
+        # اگر ربات خاموشه و کاربر ادمین نیست
+        if not db.get_bot_status() and not is_admin(user_id):
+            bot.reply_to(message, "⚠️ ربات در حال حاضر غیرفعال است.")
+            return
+
+        # ادمین‌ها معاف
+        if is_admin(user_id):
+            return func(message, *args, **kwargs)
+
+        # بررسی عضویت
+        if check_membership(user_id):
+            return func(message, *args, **kwargs)
+        else:
+            markup = InlineKeyboardMarkup()
+            markup.add(
+                InlineKeyboardButton("📢 عضویت در کانال", url=CHANNEL_LINK)
+            )
+            markup.add(
+                InlineKeyboardButton("✅ بررسی عضویت", callback_data="check_join")
+            )
+
+            bot.reply_to(
+                message,
+                "⚠️ برای استفاده از ربات باید ابتدا در کانال عضو شوید.",
+                reply_markup=markup
+            )
+
+    return wrapper
+
+# ==================== هندلر دکمه بررسی عضویت ====================
+
+@bot.callback_query_handler(func=lambda call: call.data == "check_join")
+def check_join_callback(call):
+    user_id = call.from_user.id
+    chat_id = call.message.chat.id if call.message else None
+    message_id = call.message.message_id if call.message else None
+
+    if check_membership(user_id):
+
+        # پاسخ به دکمه
+        bot.answer_callback_query(call.id, "✅ عضویت تایید شد")
+
+        # حذف پیام اگر وجود داشت
+        if chat_id and message_id:
+            try:
+                bot.delete_message(chat_id, message_id)
+            except:
+                pass
+
+        # ارسال پیام موفقیت
+        if chat_id:
+            bot.send_message(chat_id, "🎉 عضویت شما تایید شد!\nالان می‌تونی از ربات استفاده کنی.")
+
+    else:
+        bot.answer_callback_query(
+            call.id,
+            "❌ هنوز در کانال عضو نشده‌اید!",
+            show_alert=True
+        )
 
 # ==================== دیتابیس درون حافظه ====================
 
@@ -370,34 +458,6 @@ def is_admin(user_id):
 def is_super_admin(user_id):
     return user_id in SUPER_ADMINS
 
-def check_membership(user_id):
-    """بررسی عضویت کاربر در کانال"""
-    try:
-        member = bot.get_chat_member(REQUIRED_CHANNEL, user_id)
-        return member.status in ['member', 'administrator', 'creator']
-    except:
-        return False
-
-def membership_required(func):
-    """دکوراتور برای بررسی عضویت اجباری"""
-    def wrapper(message):
-        user_id = message.from_user.id
-        
-        # اگر بات خاموشه و کاربر ادمین نیست
-        if not db.get_bot_status() and not is_admin(user_id):
-            bot.reply_to(message, "⚠️ ربات در حال حاضر غیرفعال است.")
-            return
-        
-        # ادمین‌ها معاف از عضویت اجباری
-        if is_admin(user_id) or check_membership(user_id):
-            return func(message)
-        else:
-            markup = InlineKeyboardMarkup()
-            markup.add(InlineKeyboardButton("📢 عضویت در کانال", url=CHANNEL_LINK))
-            markup.add(InlineKeyboardButton("✅ بررسی عضویت", callback_data="check_join"))
-            bot.reply_to(message, f"⚠️ برای استفاده از ربات باید در کانال {REQUIRED_CHANNEL} عضو شوید!", reply_markup=markup)
-    return wrapper
-
 def vip_or_admin_required(func):
     """دکوراتور برای دسترسی VIP یا ادمین"""
     def wrapper(message):
@@ -694,15 +754,6 @@ def start(message):
     welcome += "\n🚀 برای شروع از دکمه‌های زیر استفاده کنید:"
     
     bot.send_message(message.chat.id, welcome, parse_mode="Markdown", reply_markup=markup)
-
-@bot.callback_query_handler(func=lambda call: call.data == "check_join")
-def check_join_callback(call):
-    if check_membership(call.from_user.id):
-        bot.answer_callback_query(call.id, "✅ عضویت تایید شد!")
-        bot.delete_message(call.message.chat.id, call.message.message_id)
-        bot.send_message(call.message.chat.id, "✅ حالا می‌توانید از ربات استفاده کنید.")
-    else:
-        bot.answer_callback_query(call.id, "❌ شما هنوز عضو نشده‌اید!", show_alert=True)
 
 @bot.message_handler(func=lambda m: m.text == "📱 بمباران SMS")
 @membership_required
