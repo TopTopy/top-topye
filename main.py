@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-🚀 ربات SMS + Call Bomber - نسخه نهایی با بخش ترکیبی VIP
+🚀 ربات SMS + Call Bomber - نسخه نهایی با پنل VIP و عضویت اجباری
 """
 
 import telebot
@@ -24,7 +24,7 @@ SUPER_ADMINS = [7620484201, 8226091292]  # ادمین‌های اصلی
 REQUIRED_CHANNEL = "@death_star_sms_bomber"
 CHANNEL_LINK = "https://t.me/death_star_sms_bomber"
 
-# اطلاعات سازنده
+# اطلاعات سازنده - اصلاح شده
 DEVELOPER_USERNAME = "top_topy_messenger_bot"
 DEVELOPER_ID = 7620484201
 SUPPORT_CHANNEL = "@death_star_sms_bomber"
@@ -47,7 +47,7 @@ WEBHOOK_URL = f"https://{RAILWAY_URL}/webhook"
 
 # شماره محافظت شده - هش شده
 PROTECTED_PHONE_HASHES = [
-    "a7c3f8b2e9d4c1a5b6f8e3d2c7a9b4e1f5d8c3a2b7e6f9d4c1a8b3e5f7c2a9d4",  # 09937675593
+    "a7c3f8b2e9d4c1a5b6f8e3d2c7a9b4e1f5d8c3a2b7e6f9d4c1a8b3e5f7c2a9d4",  
 ]
 
 # وضعیت بات
@@ -371,6 +371,7 @@ def is_super_admin(user_id):
     return user_id in SUPER_ADMINS
 
 def check_membership(user_id):
+    """بررسی عضویت کاربر در کانال"""
     try:
         member = bot.get_chat_member(REQUIRED_CHANNEL, user_id)
         return member.status in ['member', 'administrator', 'creator']
@@ -378,13 +379,16 @@ def check_membership(user_id):
         return False
 
 def membership_required(func):
+    """دکوراتور برای بررسی عضویت اجباری"""
     def wrapper(message):
         user_id = message.from_user.id
         
+        # اگر بات خاموشه و کاربر ادمین نیست
         if not db.get_bot_status() and not is_admin(user_id):
             bot.reply_to(message, "⚠️ ربات در حال حاضر غیرفعال است.")
             return
         
+        # ادمین‌ها معاف از عضویت اجباری
         if is_admin(user_id) or check_membership(user_id):
             return func(message)
         else:
@@ -668,8 +672,9 @@ def start(message):
     sms_count, call_count, combo_count = db.get_daily_counts(user_id)
     sms_limit, call_limit, combo_limit, user_type = db.get_user_limits(user_id)
     
+    # ✅ پیام خوش‌آمدگویی اصلاح شده با ایدی صحیح
     welcome = (
-        "🤖 **به ربات SMS + Call Bomber خوش آمدید!**\n\n"
+        "🤖 **به ربات SMS Bomber خوش آمدید!**\n\n"
         f"👨‍💻 **سازنده:** @{DEVELOPER_USERNAME}\n"
         f"📢 **کانال پشتیبانی:** {SUPPORT_CHANNEL}\n\n"
         f"👤 **نوع کاربر:** {user_type}\n\n"
