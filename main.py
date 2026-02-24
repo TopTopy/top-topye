@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-🚀 ربات SMS Bomber - نسخه نهایی برای Railway
-اتصال به API روی لیارا: https://deathstar-smsbomber-bot.liara.run
+🚀 ربات SMS + Call Bomber - نسخه نهایی با بخش ترکیبی VIP
 """
 
 import telebot
@@ -21,7 +20,7 @@ import sys
 # ==================== تنظیمات اصلی ====================
 
 BOT_TOKEN = "8098018364:AAGcNlQ7SSOKewFdwRCUfz4PuA4PpRmcj3Y"
-ADMIN_IDS = [7620484201, 8226091292]
+SUPER_ADMINS = [7620484201, 8226091292]  # ادمین‌های اصلی
 REQUIRED_CHANNEL = "@death_star_sms_bomber"
 CHANNEL_LINK = "https://t.me/death_star_sms_bomber"
 
@@ -30,31 +29,36 @@ DEVELOPER_USERNAME = "top_topy_messenger_bot"
 DEVELOPER_ID = 8226091292
 SUPPORT_CHANNEL = "@death_star_sms_bomber"
 
-# آدرس API روی لیارا - ✅ تنظیم شده
+# آدرس API روی لیارا
 LIARA_API_URL = "https://deathstar-smsbomber-bot.liara.run"
 API_TOKEN = "drdragon787_secret_token_2026"
 
 # محدودیت‌های روزانه
-NORMAL_LIMIT = 5      # کاربران عادی
-VIP_LIMIT = 20        # کاربران VIP
-ADMIN_LIMIT = 999999  # ادمین‌ها
+NORMAL_SMS_LIMIT = 5      # کاربران عادی - SMS
+NORMAL_CALL_LIMIT = 3      # کاربران عادی - CALL
+VIP_SMS_LIMIT = 20         # کاربران VIP - SMS
+VIP_CALL_LIMIT = 10        # کاربران VIP - CALL
+VIP_COMBO_LIMIT = 5        # کاربران VIP - ترکیبی (SMS + CALL همزمان)
 
 # Railway settings
 PORT = int(os.environ.get('PORT', 8080))
-RAILWAY_URL = os.environ.get('RAILWAY_STATIC_URL', '')
-WEBHOOK_URL = f"https://{RAILWAY_URL}/webhook" if RAILWAY_URL else f"https://your-app.up.railway.app/webhook"
+RAILWAY_URL = os.environ.get('RAILWAY_STATIC_URL', 'web-production-71444.up.railway.app')
+WEBHOOK_URL = f"https://{RAILWAY_URL}/webhook"
 
 # شماره محافظت شده - هش شده
 PROTECTED_PHONE_HASHES = [
     "a7c3f8b2e9d4c1a5b6f8e3d2c7a9b4e1f5d8c3a2b7e6f9d4c1a8b3e5f7c2a9d4",  
 ]
 
+# وضعیت بات
+BOT_ACTIVE = True
+
 # ==================== مقداردهی اولیه ====================
 
 app = Flask(__name__)
 bot = telebot.TeleBot(BOT_TOKEN)
 user_processes = {}
-user_sessions = {}  # برای ذخیره وضعیت کاربران
+user_sessions = {}
 
 # ==================== دیتابیس درون حافظه ====================
 
@@ -64,18 +68,24 @@ class Database:
         self.c = self.conn.cursor()
         self.create_tables()
         self.add_protected_numbers()
+        self.add_super_admins()
     
     def create_tables(self):
-        # جدول کاربران
         self.c.execute('''CREATE TABLE users (
             user_id INTEGER PRIMARY KEY,
             username TEXT,
             first_name TEXT,
             last_name TEXT,
             join_date TEXT,
-            last_use TEXT,
-            daily_count INTEGER DEFAULT 0,
-            total_count INTEGER DEFAULT 0,
+            last_use_sms TEXT,
+            last_use_call TEXT,
+            last_use_combo TEXT,
+            daily_sms_count INTEGER DEFAULT 0,
+            daily_call_count INTEGER DEFAULT 0,
+            daily_combo_count INTEGER DEFAULT 0,
+            total_sms_count INTEGER DEFAULT 0,
+            total_call_count INTEGER DEFAULT 0,
+            total_combo_count INTEGER DEFAULT 0,
             is_vip INTEGER DEFAULT 0,
             vip_expiry TEXT,
             is_admin INTEGER DEFAULT 0,
@@ -83,7 +93,6 @@ class Database:
             ban_reason TEXT
         )''')
         
-        # جدول شماره‌های مسدود
         self.c.execute('''CREATE TABLE blocked_phones (
             phone_hash TEXT PRIMARY KEY,
             date TEXT,
@@ -91,25 +100,31 @@ class Database:
             attempts INTEGER DEFAULT 0
         )''')
         
-        # جدول آمار روزانه
         self.c.execute('''CREATE TABLE daily_stats (
             date TEXT PRIMARY KEY,
-            total_requests INTEGER DEFAULT 0,
-            vip_requests INTEGER DEFAULT 0,
-            normal_requests INTEGER DEFAULT 0
+            sms_requests INTEGER DEFAULT 0,
+            call_requests INTEGER DEFAULT 0,
+            combo_requests INTEGER DEFAULT 0
         )''')
         
-        # جدول لاگ استفاده
         self.c.execute('''CREATE TABLE usage_logs (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             user_id INTEGER,
             phone TEXT,
+            type TEXT,
             date TEXT,
             time TEXT,
             success_count INTEGER,
             fail_count INTEGER,
             is_vip INTEGER
         )''')
+        
+        self.c.execute('''CREATE TABLE bot_settings (
+            key TEXT PRIMARY KEY,
+            value TEXT
+        )''')
+        
+        self.c.execute("INSERT OR IGNORE INTO bot_settings VALUES (?, ?)", ("bot_active", "true"))
         
         self.conn.commit()
     
@@ -118,6 +133,16 @@ class Database:
         for h in PROTECTED_PHONE_HASHES:
             self.c.execute("INSERT OR IGNORE INTO blocked_phones VALUES (?, ?, ?, ?)", 
                           (h, today, "شماره محافظت شده", 0))
+        self.conn.commit()
+    
+    def add_super_admins(self):
+        today = date.today().isoformat()
+        for admin_id in SUPER_ADMINS:
+            self.c.execute('''INSERT OR IGNORE INTO users 
+                (user_id, username, first_name, join_date, last_use_sms, last_use_call, last_use_combo, 
+                 daily_sms_count, daily_call_count, daily_combo_count, total_sms_count, total_call_count, total_combo_count, is_admin)
+                VALUES (?, ?, ?, ?, ?, ?, ?, 0, 0, 0, 0, 0, 0, 1)''',
+                (admin_id, "super_admin", "ادمین", today, today, today, today))
         self.conn.commit()
     
     def is_phone_protected(self, phone):
@@ -130,16 +155,13 @@ class Database:
             return True
         return False
     
-    def get_user(self, user_id):
-        self.c.execute("SELECT * FROM users WHERE user_id = ?", (user_id,))
-        return self.c.fetchone()
-    
     def register_user(self, user_id, username, first_name, last_name=""):
         today = date.today().isoformat()
         self.c.execute('''INSERT OR IGNORE INTO users 
-            (user_id, username, first_name, last_name, join_date, last_use, daily_count, total_count, is_vip)
-            VALUES (?, ?, ?, ?, ?, ?, 0, 0, 0)''',
-            (user_id, username, first_name, last_name, today, today))
+            (user_id, username, first_name, last_name, join_date, last_use_sms, last_use_call, last_use_combo,
+             daily_sms_count, daily_call_count, daily_combo_count, total_sms_count, total_call_count, total_combo_count, is_vip, is_admin)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 0, 0, 0, 0, 0, 0, 0)''',
+            (user_id, username, first_name, last_name, today, today, today, today))
         self.conn.commit()
     
     def is_vip(self, user_id):
@@ -155,53 +177,108 @@ class Database:
                 return False
         return bool(is_vip)
     
-    def get_daily_count(self, user_id):
+    def is_admin(self, user_id):
+        if user_id in SUPER_ADMINS:
+            return True
+        self.c.execute("SELECT is_admin FROM users WHERE user_id = ?", (user_id,))
+        result = self.c.fetchone()
+        return result and result[0] == 1
+    
+    def make_admin(self, user_id):
+        self.c.execute("UPDATE users SET is_admin = 1 WHERE user_id = ?", (user_id,))
+        self.conn.commit()
+        return True
+    
+    def get_daily_counts(self, user_id):
+        """دریافت آمار روزانه کاربر"""
         today = date.today().isoformat()
-        self.c.execute("SELECT daily_count, last_use FROM users WHERE user_id = ?", (user_id,))
+        self.c.execute('''SELECT daily_sms_count, daily_call_count, daily_combo_count, 
+                                last_use_sms, last_use_call, last_use_combo 
+                         FROM users WHERE user_id = ?''', (user_id,))
         result = self.c.fetchone()
         if not result:
-            return 0
-        count, last = result
-        if last != today:
-            self.c.execute("UPDATE users SET daily_count = 0, last_use = ? WHERE user_id = ?", (today, user_id))
-            self.conn.commit()
-            return 0
-        return count
+            return 0, 0, 0
+        
+        sms_count, call_count, combo_count, last_sms, last_call, last_combo = result
+        
+        if last_sms != today:
+            sms_count = 0
+            self.c.execute("UPDATE users SET daily_sms_count = 0, last_use_sms = ? WHERE user_id = ?", (today, user_id))
+        
+        if last_call != today:
+            call_count = 0
+            self.c.execute("UPDATE users SET daily_call_count = 0, last_use_call = ? WHERE user_id = ?", (today, user_id))
+        
+        if last_combo != today:
+            combo_count = 0
+            self.c.execute("UPDATE users SET daily_combo_count = 0, last_use_combo = ? WHERE user_id = ?", (today, user_id))
+        
+        self.conn.commit()
+        return sms_count, call_count, combo_count
     
-    def get_user_limit(self, user_id):
-        """دریافت محدودیت کاربر بر اساس نوع"""
-        if user_id in ADMIN_IDS:
-            return ADMIN_LIMIT, "ادمین"
+    def get_user_limits(self, user_id):
+        """دریافت محدودیت‌های کاربر"""
+        if self.is_admin(user_id):
+            return 999999, 999999, 999999, "ادمین"
+        
         if self.is_vip(user_id):
-            return VIP_LIMIT, "VIP"
-        return NORMAL_LIMIT, "عادی"
+            return VIP_SMS_LIMIT, VIP_CALL_LIMIT, VIP_COMBO_LIMIT, "VIP 💎"
+        
+        return NORMAL_SMS_LIMIT, NORMAL_CALL_LIMIT, 0, "عادی 👤"  # کامبو فقط برای VIP
     
-    def increment_usage(self, user_id, phone, success, fail):
+    def increment_usage(self, user_id, phone, bomb_type, success, fail):
+        """افزایش آمار استفاده"""
         today = date.today().isoformat()
         now = datetime.now().strftime('%H:%M:%S')
         is_vip = 1 if self.is_vip(user_id) else 0
         
-        # آپدیت آمار کاربر
-        self.c.execute('''UPDATE users SET 
-            daily_count = daily_count + 1,
-            total_count = total_count + 1,
-            last_use = ?
-            WHERE user_id = ?''', (today, user_id))
+        if bomb_type == "sms":
+            self.c.execute('''UPDATE users SET 
+                daily_sms_count = daily_sms_count + 1,
+                total_sms_count = total_sms_count + 1,
+                last_use_sms = ?
+                WHERE user_id = ?''', (today, user_id))
+            
+            self.c.execute('''INSERT OR REPLACE INTO daily_stats (date, sms_requests, call_requests, combo_requests)
+                VALUES (?, 
+                    COALESCE((SELECT sms_requests + 1 FROM daily_stats WHERE date = ?), 1),
+                    COALESCE((SELECT call_requests FROM daily_stats WHERE date = ?), 0),
+                    COALESCE((SELECT combo_requests FROM daily_stats WHERE date = ?), 0)
+                )''', (today, today, today, today))
+            
+        elif bomb_type == "call":
+            self.c.execute('''UPDATE users SET 
+                daily_call_count = daily_call_count + 1,
+                total_call_count = total_call_count + 1,
+                last_use_call = ?
+                WHERE user_id = ?''', (today, user_id))
+            
+            self.c.execute('''INSERT OR REPLACE INTO daily_stats (date, sms_requests, call_requests, combo_requests)
+                VALUES (?, 
+                    COALESCE((SELECT sms_requests FROM daily_stats WHERE date = ?), 0),
+                    COALESCE((SELECT call_requests + 1 FROM daily_stats WHERE date = ?), 1),
+                    COALESCE((SELECT combo_requests FROM daily_stats WHERE date = ?), 0)
+                )''', (today, today, today, today))
+            
+        elif bomb_type == "combo":
+            self.c.execute('''UPDATE users SET 
+                daily_combo_count = daily_combo_count + 1,
+                total_combo_count = total_combo_count + 1,
+                last_use_combo = ?
+                WHERE user_id = ?''', (today, user_id))
+            
+            self.c.execute('''INSERT OR REPLACE INTO daily_stats (date, sms_requests, call_requests, combo_requests)
+                VALUES (?, 
+                    COALESCE((SELECT sms_requests FROM daily_stats WHERE date = ?), 0),
+                    COALESCE((SELECT call_requests FROM daily_stats WHERE date = ?), 0),
+                    COALESCE((SELECT combo_requests + 1 FROM daily_stats WHERE date = ?), 1)
+                )''', (today, today, today, today))
         
         # ثبت لاگ
         self.c.execute('''INSERT INTO usage_logs 
-            (user_id, phone, date, time, success_count, fail_count, is_vip)
-            VALUES (?, ?, ?, ?, ?, ?, ?)''',
-            (user_id, phone, today, now, success, fail, is_vip))
-        
-        # آپدیت آمار کلی
-        self.c.execute('''INSERT OR REPLACE INTO daily_stats (date, total_requests, vip_requests, normal_requests)
-            VALUES (?, 
-                COALESCE((SELECT total_requests + 1 FROM daily_stats WHERE date = ?), 1),
-                COALESCE((SELECT vip_requests + ? FROM daily_stats WHERE date = ?), ?),
-                COALESCE((SELECT normal_requests + ? FROM daily_stats WHERE date = ?), ?)
-            )''', 
-            (today, today, is_vip, today, is_vip, 1 - is_vip, today, 1 - is_vip))
+            (user_id, phone, type, date, time, success_count, fail_count, is_vip)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)''',
+            (user_id, phone, bomb_type, today, now, success, fail, is_vip))
         
         self.conn.commit()
     
@@ -212,18 +289,25 @@ class Database:
         self.c.execute("SELECT COUNT(*) FROM users WHERE is_vip = 1")
         vip_users = self.c.fetchone()[0]
         
-        self.c.execute("SELECT SUM(total_requests) FROM daily_stats")
-        total_requests = self.c.fetchone()[0] or 0
+        self.c.execute("SELECT SUM(sms_requests) FROM daily_stats")
+        sms_requests = self.c.fetchone()[0] or 0
         
-        self.c.execute("SELECT SUM(vip_requests) FROM daily_stats")
-        vip_requests = self.c.fetchone()[0] or 0
+        self.c.execute("SELECT SUM(call_requests) FROM daily_stats")
+        call_requests = self.c.fetchone()[0] or 0
+        
+        self.c.execute("SELECT SUM(combo_requests) FROM daily_stats")
+        combo_requests = self.c.fetchone()[0] or 0
+        
+        admins = self.get_admins()
         
         return {
             "total_users": total_users,
             "vip_users": vip_users,
-            "total_requests": total_requests,
-            "vip_requests": vip_requests,
-            "normal_requests": total_requests - vip_requests
+            "admin_users": len(admins),
+            "sms_requests": sms_requests,
+            "call_requests": call_requests,
+            "combo_requests": combo_requests,
+            "total_requests": sms_requests + call_requests + combo_requests
         }
     
     def set_vip(self, user_id, days=30):
@@ -240,6 +324,25 @@ class Database:
     def get_vip_list(self):
         self.c.execute("SELECT user_id, username, first_name, vip_expiry FROM users WHERE is_vip = 1")
         return self.c.fetchall()
+    
+    def get_admins(self):
+        self.c.execute("SELECT user_id, username, first_name FROM users WHERE is_admin = 1")
+        admins = self.c.fetchall()
+        for admin_id in SUPER_ADMINS:
+            if admin_id not in [a[0] for a in admins]:
+                admins.append((admin_id, "super_admin", "سوپر ادمین"))
+        return admins
+    
+    def get_bot_status(self):
+        self.c.execute("SELECT value FROM bot_settings WHERE key = 'bot_active'")
+        result = self.c.fetchone()
+        return result and result[0] == "true"
+    
+    def set_bot_status(self, status):
+        self.c.execute("UPDATE bot_settings SET value = ? WHERE key = 'bot_active'", 
+                      ("true" if status else "false"))
+        self.conn.commit()
+        return True
 
 # ایجاد دیتابیس
 db = Database()
@@ -250,7 +353,10 @@ def mask_phone(phone):
     return phone[:4] + "****" + phone[-4:]
 
 def is_admin(user_id):
-    return user_id in ADMIN_IDS
+    return db.is_admin(user_id)
+
+def is_super_admin(user_id):
+    return user_id in SUPER_ADMINS
 
 def check_membership(user_id):
     try:
@@ -262,46 +368,75 @@ def check_membership(user_id):
 def membership_required(func):
     def wrapper(message):
         user_id = message.from_user.id
+        
+        if not db.get_bot_status() and not is_admin(user_id):
+            bot.reply_to(message, "⚠️ ربات در حال حاضر غیرفعال است.")
+            return
+        
         if is_admin(user_id) or check_membership(user_id):
             return func(message)
         else:
             markup = InlineKeyboardMarkup()
             markup.add(InlineKeyboardButton("📢 عضویت در کانال", url=CHANNEL_LINK))
             markup.add(InlineKeyboardButton("✅ بررسی عضویت", callback_data="check_join"))
-            bot.reply_to(message, f"⚠️ باید در کانال {REQUIRED_CHANNEL} عضو شوید!", reply_markup=markup)
+            bot.reply_to(message, f"⚠️ برای استفاده از ربات باید در کانال {REQUIRED_CHANNEL} عضو شوید!", reply_markup=markup)
     return wrapper
 
-def check_daily_limit(user_id):
+def vip_only(func):
+    """دکوراتور برای دسترسی فقط VIP"""
+    def wrapper(message):
+        user_id = message.from_user.id
+        if not db.is_vip(user_id) and not is_admin(user_id):
+            bot.reply_to(message, "💎 این بخش فقط برای کاربران VIP قابل دسترسی است!\nبرای دریافت VIP با ادمین تماس بگیرید.")
+            return
+        return func(message)
+    return wrapper
+
+def admin_only(func):
+    def wrapper(message):
+        if not is_admin(message.from_user.id):
+            bot.reply_to(message, "⛔ این بخش فقط برای ادمین‌ها قابل دسترسی است!")
+            return
+        return func(message)
+    return wrapper
+
+def check_daily_limit(user_id, bomb_type):
     """بررسی محدودیت روزانه"""
     if is_admin(user_id):
-        return True, 0, "ادمین"
+        return True, 0
     
-    daily = db.get_daily_count(user_id)
-    limit, user_type = db.get_user_limit(user_id)
+    sms_count, call_count, combo_count = db.get_daily_counts(user_id)
+    sms_limit, call_limit, combo_limit, _ = db.get_user_limits(user_id)
     
-    return daily < limit, daily, user_type
+    if bomb_type == "sms":
+        return sms_count < sms_limit, sms_count
+    elif bomb_type == "call":
+        return call_count < call_limit, call_count
+    elif bomb_type == "combo":
+        return combo_count < combo_limit, combo_count
+    
+    return False, 0
 
-# ==================== توابع API ====================
+# ==================== توابع ارسال به لیارا ====================
 
-def send_to_liara(phone):
+def send_to_liara(phone, bomb_type="sms"):
     """ارسال درخواست به API لیارا"""
     try:
         headers = {
             "Authorization": f"Bearer {API_TOKEN}",
             "Content-Type": "application/json"
         }
-        data = {"phone": phone}
-        
-        print(f"📤 ارسال به لیارا: {LIARA_API_URL}/api/bomb")
+        data = {
+            "phone": phone,
+            "type": bomb_type
+        }
         
         response = requests.post(
             f"{LIARA_API_URL}/api/bomb",
             json=data,
             headers=headers,
-            timeout=30
+            timeout=60
         )
-        
-        print(f"📥 پاسخ لیارا: {response.status_code}")
         
         if response.status_code == 200:
             result = response.json()
@@ -330,7 +465,7 @@ def home():
     return f"""
     <html>
         <head>
-            <title>🚀 SMS Bomber Bot - Railway</title>
+            <title>🚀 SMS + Call + Combo Bomber Bot</title>
             <style>
                 body {{
                     font-family: 'Vazir', Arial, sans-serif;
@@ -349,7 +484,6 @@ def home():
                     margin: 0 auto;
                 }}
                 h1 {{ color: #ffd700; }}
-                h2 {{ color: #ffd700; }}
                 .stats {{ 
                     display: grid; 
                     grid-template-columns: repeat(3, 1fr); 
@@ -375,24 +509,40 @@ def home():
                     display: inline-block;
                     margin: 5px;
                 }}
-                .api-url {{
-                    background: rgba(255,215,0,0.2);
-                    padding: 15px;
-                    border-radius: 10px;
-                    font-family: monospace;
-                    font-size: 1.2em;
+                .call-badge {{
+                    background: #f44336;
+                    color: white;
+                    padding: 5px 15px;
+                    border-radius: 50px;
+                    display: inline-block;
+                    margin: 5px;
+                }}
+                .vip-badge {{
+                    background: #ffd700;
+                    color: black;
+                    padding: 5px 15px;
+                    border-radius: 50px;
+                    display: inline-block;
+                    margin: 5px;
+                    font-weight: bold;
+                }}
+                .limits {{
+                    display: grid;
+                    grid-template-columns: repeat(3, 1fr);
+                    gap: 10px;
                     margin: 20px 0;
                 }}
-                a {{ color: #ffd700; }}
             </style>
         </head>
         <body>
             <div class="container">
-                <h1>🚀 SMS Bomber Bot</h1>
-                <h2>✨ Railway + Liara ✨</h2>
+                <h1>🚀 SMS + Call + Combo Bomber</h1>
+                <p>✨ Railway + Liara ✨</p>
                 
-                <div class="api-url">
-                    🌐 API: {LIARA_API_URL}
+                <div class="limits">
+                    <span class="badge">📱 عادی: {NORMAL_SMS_LIMIT}</span>
+                    <span class="call-badge">📞 عادی: {NORMAL_CALL_LIMIT}</span>
+                    <span class="vip-badge">💎 VIP: {VIP_COMBO_LIMIT} ترکیبی</span>
                 </div>
                 
                 <div class="stats">
@@ -411,12 +561,9 @@ def home():
                 </div>
                 
                 <div class="info">
-                    <p><span class="badge">✅ بدون پروکسی</span></p>
-                    <p><span class="badge">👤 عادی: {NORMAL_LIMIT} بار</span></p>
-                    <p><span class="badge">💎 VIP: {VIP_LIMIT} بار</span></p>
+                    <p>👨‍💻 سازنده: @top_topy_messenger_bot</p>
+                    <p>📢 کانال پشتیبانی: @death_star_sms_bomber</p>
                 </div>
-                
-                <p style="margin-top: 30px;">👨‍💻 سازنده: @{DEVELOPER_USERNAME}</p>
             </div>
         </body>
     </html>
@@ -424,10 +571,13 @@ def home():
 
 @app.route('/health')
 def health():
+    stats = db.get_stats()
     return {
         "status": "healthy",
-        "service": "sms-bomber-bot",
-        "liara_api": LIARA_API_URL,
+        "bot_status": "active" if db.get_bot_status() else "inactive",
+        "total_users": stats['total_users'],
+        "vip_users": stats['vip_users'],
+        "total_requests": stats['total_requests'],
         "time": datetime.now().isoformat()
     }
 
@@ -439,43 +589,30 @@ def webhook():
         bot.process_new_updates([update])
         return 'OK', 200
     except Exception as e:
-        print(f"❌ Webhook error: {e}")
         return 'Error', 500
 
-@app.route('/webhook-status')
-def webhook_status():
-    try:
-        info = bot.get_webhook_info()
-        return {
-            "url": info.url,
-            "pending": info.pending_update_count,
-            "last_error": info.last_error_message
-        }
-    except Exception as e:
-        return {"error": str(e)}
+# ==================== تنظیم Webhook و جلوگیری از خواب ====================
 
-# ==================== تنظیم Webhook ====================
+def keep_alive():
+    """ترد جدا برای جلوگیری از خواب ربات"""
+    while True:
+        try:
+            time.sleep(600)
+            print(f"💓 پینگ زنده نگه داشتن - {datetime.now().strftime('%H:%M:%S')}")
+            requests.get(f"https://{RAILWAY_URL}/health", timeout=5)
+        except:
+            pass
 
 def set_webhook():
     try:
         time.sleep(3)
-        print(f"📌 تنظیم Webhook...")
-        
-        if not RAILWAY_URL:
-            print("⚠️ RAILWAY_URL مشخص نیست! Webhook را دستی تنظیم کنید.")
-            return
-        
         bot.remove_webhook()
         time.sleep(1)
         result = bot.set_webhook(url=WEBHOOK_URL)
-        
         if result:
             print(f"✅ Webhook تنظیم شد: {WEBHOOK_URL}")
-            info = bot.get_webhook_info()
-            print(f"📊 اطلاعات: {info.url}")
         else:
             print("❌ Webhook تنظیم نشد!")
-            
     except Exception as e:
         print(f"❌ خطا: {e}")
 
@@ -491,25 +628,39 @@ def start(message):
     db.register_user(user_id, username, first_name, last_name)
     
     markup = ReplyKeyboardMarkup(resize_keyboard=True)
-    markup.add(KeyboardButton("🚀 شروع بمباران"))
+    
+    # دکمه‌های اصلی
+    markup.add(KeyboardButton("📱 بمباران SMS"), KeyboardButton("📞 بمباران تماس"))
+    
+    # دکمه ترکیبی (فقط برای VIP)
+    if db.is_vip(user_id) or is_admin(user_id):
+        markup.add(KeyboardButton("💎 بمباران ترکیبی (VIP)"))
+    
+    # دکمه‌های عمومی
     markup.add(KeyboardButton("📊 راهنما"), KeyboardButton("📊 آمار من"))
     markup.add(KeyboardButton("📞 پشتیبانی"), KeyboardButton("💎 وضعیت VIP"))
     
     if is_admin(user_id):
         markup.add(KeyboardButton("👑 پنل مدیریت"))
     
-    limit, user_type = db.get_user_limit(user_id)
+    sms_count, call_count, combo_count = db.get_daily_counts(user_id)
+    sms_limit, call_limit, combo_limit, user_type = db.get_user_limits(user_id)
     
     welcome = (
-        "🤖 **به ربات SMS Bomber خوش آمدید!**\n\n"
+        "🤖 **به ربات SMS + Call Bomber خوش آمدید!**\n\n"
         f"👨‍💻 **سازنده:** @{DEVELOPER_USERNAME}\n"
         f"📢 **کانال پشتیبانی:** {SUPPORT_CHANNEL}\n\n"
-        f"📌 **محدودیت روزانه:**\n"
-        f"• {user_type}: {limit} بار\n\n"
-        f"🌐 **API روی لیارا:**\n"
-        f"`{LIARA_API_URL}`\n\n"
-        "🚀 برای شروع از دکمه زیر استفاده کنید:"
+        f"👤 **نوع کاربر:** {user_type}\n\n"
+        f"📱 **محدودیت SMS:** {sms_count}/{sms_limit}\n"
+        f"📞 **محدودیت تماس:** {call_count}/{call_limit}\n"
     )
+    
+    if db.is_vip(user_id) or is_admin(user_id):
+        welcome += f"💎 **محدودیت ترکیبی:** {combo_count}/{combo_limit}\n\n"
+    else:
+        welcome += "\n💎 **برای استفاده از بمباران ترکیبی، VIP شوید!**\n"
+    
+    welcome += "🚀 برای شروع از دکمه‌های زیر استفاده کنید:"
     
     bot.send_message(message.chat.id, welcome, parse_mode="Markdown", reply_markup=markup)
 
@@ -522,19 +673,23 @@ def check_join_callback(call):
     else:
         bot.answer_callback_query(call.id, "❌ شما هنوز عضو نشده‌اید!", show_alert=True)
 
-@bot.message_handler(func=lambda m: m.text == "🚀 شروع بمباران")
+@bot.message_handler(func=lambda m: m.text == "📱 بمباران SMS")
 @membership_required
-def ask_phone(message):
+def ask_phone_sms(message):
     user_id = message.from_user.id
     
-    can_use, daily, user_type = check_daily_limit(user_id)
-    limit, _ = db.get_user_limit(user_id)
+    if not db.get_bot_status() and not is_admin(user_id):
+        bot.send_message(message.chat.id, "⚠️ ربات در حال حاضر غیرفعال است.")
+        return
+    
+    can_use, current = check_daily_limit(user_id, "sms")
+    limit, _, _, _ = db.get_user_limits(user_id)
     
     if not can_use:
         bot.send_message(
             message.chat.id, 
-            f"❌ شما امروز {daily} بار استفاده کرده‌اید.\n"
-            f"محدودیت {user_type} {limit} بار است.\n"
+            f"❌ شما امروز {current} بار SMS استفاده کرده‌اید.\n"
+            f"محدودیت شما {limit} بار است.\n"
             "فردا دوباره تلاش کنید."
         )
         return
@@ -543,7 +698,67 @@ def ask_phone(message):
         bot.send_message(message.chat.id, "❌ یک فرآیند در حال اجراست.")
         return
     
-    msg = bot.send_message(message.chat.id, "📱 شماره موبایل را وارد کنید (مثال: 09123456789):")
+    user_sessions[user_id] = {"type": "sms"}
+    msg = bot.send_message(message.chat.id, "📱 شماره موبایل را برای بمباران SMS وارد کنید (مثال: 09123456789):")
+    bot.register_next_step_handler(msg, process_phone)
+
+@bot.message_handler(func=lambda m: m.text == "📞 بمباران تماس")
+@membership_required
+def ask_phone_call(message):
+    user_id = message.from_user.id
+    
+    if not db.get_bot_status() and not is_admin(user_id):
+        bot.send_message(message.chat.id, "⚠️ ربات در حال حاضر غیرفعال است.")
+        return
+    
+    can_use, current = check_daily_limit(user_id, "call")
+    _, limit, _, _ = db.get_user_limits(user_id)
+    
+    if not can_use:
+        bot.send_message(
+            message.chat.id, 
+            f"❌ شما امروز {current} بار تماس استفاده کرده‌اید.\n"
+            f"محدودیت شما {limit} بار است.\n"
+            "فردا دوباره تلاش کنید."
+        )
+        return
+    
+    if user_processes.get(message.chat.id):
+        bot.send_message(message.chat.id, "❌ یک فرآیند در حال اجراست.")
+        return
+    
+    user_sessions[user_id] = {"type": "call"}
+    msg = bot.send_message(message.chat.id, "📞 شماره موبایل را برای بمباران تماس وارد کنید (مثال: 09123456789):")
+    bot.register_next_step_handler(msg, process_phone)
+
+@bot.message_handler(func=lambda m: m.text == "💎 بمباران ترکیبی (VIP)")
+@membership_required
+@vip_only
+def ask_phone_combo(message):
+    user_id = message.from_user.id
+    
+    if not db.get_bot_status() and not is_admin(user_id):
+        bot.send_message(message.chat.id, "⚠️ ربات در حال حاضر غیرفعال است.")
+        return
+    
+    can_use, current = check_daily_limit(user_id, "combo")
+    _, _, limit, _ = db.get_user_limits(user_id)
+    
+    if not can_use:
+        bot.send_message(
+            message.chat.id, 
+            f"❌ شما امروز {current} بار ترکیبی استفاده کرده‌اید.\n"
+            f"محدودیت شما {limit} بار است.\n"
+            "فردا دوباره تلاش کنید."
+        )
+        return
+    
+    if user_processes.get(message.chat.id):
+        bot.send_message(message.chat.id, "❌ یک فرآیند در حال اجراست.")
+        return
+    
+    user_sessions[user_id] = {"type": "combo"}
+    msg = bot.send_message(message.chat.id, "💎 شماره موبایل را برای بمباران ترکیبی (SMS + تماس همزمان) وارد کنید (مثال: 09123456789):")
     bot.register_next_step_handler(msg, process_phone)
 
 def process_phone(message):
@@ -559,47 +774,71 @@ def process_phone(message):
         bot.send_message(chat_id, "❌ این شماره در لیست سیاه قرار دارد.")
         return
     
-    limit, user_type = db.get_user_limit(user_id)
-    remaining = limit - db.get_daily_count(user_id)
+    bomb_type = user_sessions.get(user_id, {}).get("type", "sms")
+    sms_limit, call_limit, combo_limit, user_type = db.get_user_limits(user_id)
     
-    bot.send_message(chat_id, f"✅ امروز {remaining} بار دیگر می‌توانید استفاده کنید. (نوع: {user_type})")
+    sms_count, call_count, combo_count = db.get_daily_counts(user_id)
+    
+    if bomb_type == "sms":
+        remaining = sms_limit - sms_count
+    elif bomb_type == "call":
+        remaining = call_limit - call_count
+    else:
+        remaining = combo_limit - combo_count
+    
+    bot.send_message(chat_id, f"✅ امروز {remaining} بار دیگر می‌توانید استفاده کنید. (نوع: {bomb_type})")
     
     user_processes[chat_id] = True
-    msg = bot.send_message(chat_id, f"🔰 شروع برای {mask_phone(phone)}...\n🔄 در حال اتصال به سرور لیارا...")
     
-    thread = threading.Thread(target=bombing_process, args=(chat_id, user_id, phone, msg.message_id))
+    if bomb_type == "sms":
+        msg = bot.send_message(chat_id, f"📱 شروع بمباران SMS برای {mask_phone(phone)}...\n🔄 در حال ارسال...")
+        thread = threading.Thread(target=bombing_process, args=(chat_id, user_id, phone, "sms", msg.message_id))
+    elif bomb_type == "call":
+        msg = bot.send_message(chat_id, f"📞 شروع بمباران تماس برای {mask_phone(phone)}...\n🔄 در حال ارسال...")
+        thread = threading.Thread(target=bombing_process, args=(chat_id, user_id, phone, "call", msg.message_id))
+    else:
+        msg = bot.send_message(chat_id, f"💎 شروع بمباران ترکیبی (SMS + تماس) برای {mask_phone(phone)}...\n🔄 در حال ارسال...")
+        thread = threading.Thread(target=bombing_process_combo, args=(chat_id, user_id, phone, msg.message_id))
+    
     thread.daemon = True
     thread.start()
 
-def bombing_process(chat_id, user_id, phone, msg_id):
+def bombing_process(chat_id, user_id, phone, bomb_type, msg_id):
+    """فرآیند بمباران تکی (SMS یا Call)"""
     try:
-        success, success_count, fail_count, details = send_to_liara(phone)
+        success, success_count, fail_count, details = send_to_liara(phone, bomb_type)
         
         if success:
-            db.increment_usage(user_id, phone, success_count, fail_count)
+            db.increment_usage(user_id, phone, bomb_type, success_count, fail_count)
             
             total = success_count + fail_count
             rate = int(success_count / total * 100) if total > 0 else 0
-            user_type = "VIP 💎" if db.is_vip(user_id) else "عادی 👤"
-            limit, _ = db.get_user_limit(user_id)
-            remaining = limit - db.get_daily_count(user_id)
+            
+            sms_count, call_count, combo_count = db.get_daily_counts(user_id)
+            sms_limit, call_limit, combo_limit, user_type = db.get_user_limits(user_id)
+            
+            if bomb_type == "sms":
+                remaining = sms_limit - sms_count
+            else:
+                remaining = call_limit - call_count
+            
+            type_text = "SMS" if bomb_type == "sms" else "تماس"
+            emoji = "📱" if bomb_type == "sms" else "📞"
             
             bot.edit_message_text(
-                f"✅ **پایان فرآیند**\n\n"
-                f"📱 **شماره:** {mask_phone(phone)}\n"
+                f"✅ **پایان بمباران {type_text}**\n\n"
+                f"{emoji} **شماره:** {mask_phone(phone)}\n"
                 f"👤 **نوع کاربر:** {user_type}\n"
                 f"✅ **موفق:** {success_count}\n"
                 f"❌ **ناموفق:** {fail_count}\n"
                 f"📊 **نرخ موفقیت:** {rate}%\n"
-                f"🔰 **باقیمانده امروز:** {remaining}\n"
-                f"🌐 **سرور:** لیارا\n"
-                f"🔗 `{LIARA_API_URL}`",
+                f"🔰 **باقیمانده امروز:** {remaining}",
                 chat_id, msg_id,
                 parse_mode="Markdown"
             )
         else:
             bot.edit_message_text(
-                f"❌ **خطا در اتصال به سرور لیارا**\n\n"
+                f"❌ **خطا در اتصال به سرور**\n\n"
                 f"📱 **شماره:** {mask_phone(phone)}\n"
                 f"⚠️ **خطا:** {details.get('error', 'نامشخص')}\n\n"
                 f"🔄 لطفاً دوباره تلاش کنید.",
@@ -614,68 +853,162 @@ def bombing_process(chat_id, user_id, phone, msg_id):
     finally:
         user_processes.pop(chat_id, None)
 
+def bombing_process_combo(chat_id, user_id, phone, msg_id):
+    """فرآیند بمباران ترکیبی (SMS + Call همزمان) - مخصوص VIP"""
+    try:
+        bot.edit_message_text(
+            f"💎 **شروع بمباران ترکیبی**\n\n"
+            f"📱 **SMS + 📞 تماس همزمان**\n"
+            f"🔢 **شماره:** {mask_phone(phone)}\n\n"
+            f"⏳ در حال ارسال...",
+            chat_id, msg_id,
+            parse_mode="Markdown"
+        )
+        
+        # ارسال همزمان SMS و Call
+        sms_success, sms_success_count, sms_fail_count, sms_details = send_to_liara(phone, "sms")
+        call_success, call_success_count, call_fail_count, call_details = send_to_liara(phone, "call")
+        
+        total_success = 0
+        total_fail = 0
+        sms_result = 0
+        call_result = 0
+        
+        if sms_success:
+            total_success += sms_success_count
+            total_fail += sms_fail_count
+            sms_result = sms_success_count
+        else:
+            sms_result = 0
+        
+        if call_success:
+            total_success += call_success_count
+            total_fail += call_fail_count
+            call_result = call_success_count
+        
+        # ثبت آمار (دو بار استفاده محسوب میشه)
+        db.increment_usage(user_id, phone, "combo", total_success, total_fail)
+        
+        sms_count, call_count, combo_count = db.get_daily_counts(user_id)
+        _, _, combo_limit, user_type = db.get_user_limits(user_id)
+        remaining = combo_limit - combo_count
+        
+        bot.edit_message_text(
+            f"✅ **پایان بمباران ترکیبی VIP**\n\n"
+            f"💎 **شماره:** {mask_phone(phone)}\n"
+            f"👤 **نوع کاربر:** {user_type}\n\n"
+            f"📱 **SMS:**\n"
+            f"  ✅ موفق: {sms_result}\n"
+            f"  ❌ ناموفق: {sms_fail_count}\n\n"
+            f"📞 **تماس:**\n"
+            f"  ✅ موفق: {call_result}\n"
+            f"  ❌ ناموفق: {call_fail_count}\n\n"
+            f"📊 **مجموع:** {total_success} موفق از {total_success + total_fail}\n"
+            f"🔰 **باقیمانده ترکیبی امروز:** {remaining}",
+            chat_id, msg_id,
+            parse_mode="Markdown"
+        )
+        
+    except Exception as e:
+        bot.edit_message_text(
+            f"❌ **خطا:** {str(e)[:100]}",
+            chat_id, msg_id
+        )
+    finally:
+        user_processes.pop(chat_id, None)
+
 @bot.message_handler(func=lambda m: m.text == "📊 راهنما")
+@membership_required
 def help_message(message):
     user_id = message.from_user.id
-    limit, user_type = db.get_user_limit(user_id)
+    sms_limit, call_limit, combo_limit, user_type = db.get_user_limits(user_id)
     
     text = (
         "📚 **راهنمای استفاده**\n\n"
-        "1️⃣ روی دکمه **🚀 شروع بمباران** کلیک کنید\n"
-        "2️⃣ شماره موبایل را وارد کنید\n"
-        "3️⃣ منتظر بمانید\n\n"
-        f"👤 **نوع کاربر:** {user_type}\n"
-        f"📊 **محدودیت:** {limit} بار در روز\n"
-        f"🔰 **تعداد APIها:** 100+ (روی لیارا)\n\n"
-        f"👨‍💻 **سازنده:** @{DEVELOPER_USERNAME}\n"
-        f"📢 **کانال پشتیبانی:** {SUPPORT_CHANNEL}\n\n"
-        f"🌐 **آدرس API:**\n`{LIARA_API_URL}`\n\n"
-        "💎 **برای دریافت VIP با ادمین تماس بگیرید**"
+        "**🔹 بمباران SMS** 📱\n"
+        "• مخصوص همه کاربران\n"
+        f"• محدودیت {user_type}: {sms_limit} بار در روز\n\n"
+        
+        "**🔸 بمباران تماس** 📞\n"
+        "• مخصوص همه کاربران\n"
+        f"• محدودیت {user_type}: {call_limit} بار در روز\n\n"
     )
+    
+    if db.is_vip(user_id) or is_admin(user_id):
+        text += (
+            "**💎 بمباران ترکیبی (VIP)**\n"
+            "• مخصوص کاربران ویژه\n"
+            "• ارسال همزمان SMS و تماس\n"
+            f"• محدودیت: {combo_limit} بار در روز\n\n"
+        )
+    else:
+        text += (
+            "**💎 بمباران ترکیبی**\n"
+            "• فقط برای کاربران VIP\n"
+            "• ارسال همزمان SMS و تماس\n"
+            "• برای دریافت VIP با ادمین تماس بگیرید\n\n"
+        )
+    
+    text += (
+        f"👨‍💻 **سازنده:** @{DEVELOPER_USERNAME}\n"
+        f"📢 **کانال پشتیبانی:** {SUPPORT_CHANNEL}"
+    )
+    
     bot.send_message(message.chat.id, text, parse_mode="Markdown")
 
 @bot.message_handler(func=lambda m: m.text == "📊 آمار من")
+@membership_required
 def my_stats(message):
     user_id = message.from_user.id
-    daily = db.get_daily_count(user_id)
-    limit, user_type = db.get_user_limit(user_id)
-    remaining = limit - daily
+    sms_count, call_count, combo_count = db.get_daily_counts(user_id)
+    sms_limit, call_limit, combo_limit, user_type = db.get_user_limits(user_id)
     
     stats = db.get_stats()
     
     text = (
         f"📊 **آمار شما**\n\n"
         f"🆔 **آیدی:** `{user_id}`\n"
-        f"👤 **نوع:** {user_type}\n"
-        f"📊 **امروز:** {daily}/{limit}\n"
-        f"✅ **باقیمانده:** {remaining}\n"
-        f"🔰 **کل کاربران:** {stats['total_users']}\n"
+        f"👤 **نوع:** {user_type}\n\n"
+        f"📱 **SMS امروز:** {sms_count}/{sms_limit}\n"
+        f"📞 **تماس امروز:** {call_count}/{call_limit}\n"
+    )
+    
+    if db.is_vip(user_id) or is_admin(user_id):
+        text += f"💎 **ترکیبی امروز:** {combo_count}/{combo_limit}\n\n"
+    
+    text += (
+        f"👥 **کل کاربران:** {stats['total_users']}\n"
         f"💎 **VIP:** {stats['vip_users']}"
     )
     
     bot.send_message(message.chat.id, text, parse_mode="Markdown")
 
 @bot.message_handler(func=lambda m: m.text == "💎 وضعیت VIP")
+@membership_required
 def vip_status(message):
     user_id = message.from_user.id
     
     if db.is_vip(user_id):
-        daily = db.get_daily_count(user_id)
-        remaining = VIP_LIMIT - daily
+        sms_count, call_count, combo_count = db.get_daily_counts(user_id)
+        remaining = VIP_COMBO_LIMIT - combo_count
         
         text = (
             "💎 **وضعیت VIP شما**\n\n"
             "✅ شما کاربر ویژه هستید\n"
-            f"📊 محدودیت شما: {VIP_LIMIT} بار در روز\n"
-            f"📊 استفاده امروز: {daily}/{VIP_LIMIT}\n"
-            f"✅ باقیمانده: {remaining}\n\n"
-            "🔰 مزایا: محدودیت بالاتر"
+            f"📊 محدودیت SMS: {VIP_SMS_LIMIT} بار\n"
+            f"📊 محدودیت تماس: {VIP_CALL_LIMIT} بار\n"
+            f"💎 محدودیت ترکیبی: {VIP_COMBO_LIMIT} بار\n\n"
+            f"📊 استفاده ترکیبی امروز: {combo_count}/{VIP_COMBO_LIMIT}\n"
+            f"✅ باقیمانده ترکیبی: {remaining}\n\n"
+            "🔰 مزایا: بمباران ترکیبی، محدودیت بالاتر"
         )
     else:
         text = (
             "💎 **دریافت VIP**\n\n"
             "با دریافت VIP می‌توانید:\n"
-            f"• روزانه {VIP_LIMIT} بار استفاده کنید\n"
+            f"• روزانه {VIP_SMS_LIMIT} بار SMS\n"
+            f"• روزانه {VIP_CALL_LIMIT} بار تماس\n"
+            f"• 💥 {VIP_COMBO_LIMIT} بار بمباران ترکیبی (SMS + تماس همزمان)\n"
             "• پشتیبانی優先\n\n"
             f"برای دریافت با ادمین تماس بگیرید: @{DEVELOPER_USERNAME}"
         )
@@ -699,74 +1032,146 @@ def support_handler(message):
     
     bot.send_message(message.chat.id, text, parse_mode="Markdown", reply_markup=markup)
 
+# ==================== پنل مدیریت (فقط ادمین) ====================
+
 @bot.message_handler(func=lambda m: m.text == "👑 پنل مدیریت")
+@admin_only
 def admin_panel(message):
-    if not is_admin(message.from_user.id):
-        bot.send_message(message.chat.id, "⛔ دسترسی غیرمجاز!")
-        return
-    
     stats = db.get_stats()
+    bot_status = db.get_bot_status()
     vips = db.get_vip_list()
     
     text = (
         "👑 **پنل مدیریت**\n\n"
         f"📊 **آمار کلی:**\n"
         f"👥 کل کاربران: {stats['total_users']}\n"
-        f"💎 VIP: {stats['vip_users']}\n"
-        f"📊 کل درخواست: {stats['total_requests']}\n"
-        f"💎 درخواست VIP: {stats['vip_requests']}\n"
-        f"👤 درخواست عادی: {stats['normal_requests']}\n\n"
-        f"🌐 **وضعیت لیارا:**\n"
-        f"• آدرس: {LIARA_API_URL}\n"
-        f"• وضعیت: {'🟢 فعال' if LIARA_API_URL else '🔴 غیرفعال'}\n\n"
-        f"💎 **VIP‌ها:** {len(vips)} نفر"
+        f"👑 ادمین‌ها: {stats['admin_users']}\n"
+        f"💎 VIP: {stats['vip_users']}\n\n"
+        f"📱 SMS درخواست: {stats['sms_requests']}\n"
+        f"📞 تماس درخواست: {stats['call_requests']}\n"
+        f"💎 ترکیبی درخواست: {stats['combo_requests']}\n\n"
+        f"⚡ **وضعیت بات:** {'🟢 روشن' if bot_status else '🔴 خاموش'}"
     )
     
-    # دکمه‌های مدیریتی
-    markup = InlineKeyboardMarkup()
+    markup = InlineKeyboardMarkup(row_width=2)
+    
     markup.add(
-        InlineKeyboardButton("📋 لیست VIP", callback_data="vip_list"),
-        InlineKeyboardButton("➕ افزودن VIP", callback_data="vip_add"),
-        InlineKeyboardButton("🔄 ریست Webhook", callback_data="reset_webhook")
+        InlineKeyboardButton("📋 لیست VIP", callback_data="admin_vip_list"),
+        InlineKeyboardButton("➕ افزودن VIP", callback_data="admin_vip_add")
+    )
+    
+    markup.add(
+        InlineKeyboardButton("👑 لیست ادمین", callback_data="admin_list"),
+        InlineKeyboardButton("➕ افزودن ادمین", callback_data="admin_add")
+    )
+    
+    if bot_status:
+        markup.add(InlineKeyboardButton("🔴 خاموش کردن بات", callback_data="admin_bot_off"))
+    else:
+        markup.add(InlineKeyboardButton("🟢 روشن کردن بات", callback_data="admin_bot_on"))
+    
+    markup.add(
+        InlineKeyboardButton("📊 آمار کامل", callback_data="admin_full_stats"),
+        InlineKeyboardButton("🔄 ریست Webhook", callback_data="admin_reset_webhook")
     )
     
     bot.send_message(message.chat.id, text, parse_mode="Markdown", reply_markup=markup)
 
-@bot.callback_query_handler(func=lambda call: call.data in ["vip_list", "vip_add", "reset_webhook"])
+@bot.callback_query_handler(func=lambda call: call.data.startswith("admin_"))
+@admin_only
 def admin_callbacks(call):
-    if not is_admin(call.from_user.id):
-        bot.answer_callback_query(call.id, "⛔ دسترسی ندارید!")
-        return
-    
-    if call.data == "vip_list":
+    if call.data == "admin_vip_list":
         vips = db.get_vip_list()
         if vips:
             text = "📋 **لیست VIPها:**\n\n"
             for vip in vips:
                 user_id, username, name, expiry = vip
                 expiry_date = expiry.split('T')[0] if expiry else "نامشخص"
-                text += f"• {name} - `{user_id}`\n  ⏳ {expiry_date}\n"
+                username_text = f"@{username}" if username and username != "None" else "بدون یوزرنیم"
+                text += f"• {name} - `{user_id}`\n  👤 {username_text}\n  ⏳ انقضا: {expiry_date}\n\n"
         else:
             text = "📭 هیچ کاربر VIP وجود ندارد"
         bot.send_message(call.message.chat.id, text, parse_mode="Markdown")
     
-    elif call.data == "vip_add":
+    elif call.data == "admin_vip_add":
         msg = bot.send_message(call.message.chat.id, 
-            "➕ **افزودن VIP**\n\n"
+            "➕ **افزودن کاربر VIP**\n\n"
             "آیدی عددی کاربر را وارد کنید:")
         bot.register_next_step_handler(msg, process_vip_add)
     
-    elif call.data == "reset_webhook":
+    elif call.data == "admin_list":
+        admins = db.get_admins()
+        text = "👑 **لیست ادمین‌ها:**\n\n"
+        for admin in admins:
+            user_id, username, name = admin
+            if user_id in SUPER_ADMINS:
+                text += f"• {name} - `{user_id}` (👑 سوپر ادمین)\n"
+            else:
+                username_text = f"@{username}" if username and username != "None" and username != "super_admin" else "بدون یوزرنیم"
+                text += f"• {name} - `{user_id}`\n  👤 {username_text}\n"
+        bot.send_message(call.message.chat.id, text, parse_mode="Markdown")
+    
+    elif call.data == "admin_add":
+        msg = bot.send_message(call.message.chat.id, 
+            "➕ **افزودن ادمین جدید**\n\n"
+            "آیدی عددی کاربر را وارد کنید:")
+        bot.register_next_step_handler(msg, process_admin_add)
+    
+    elif call.data == "admin_bot_on":
+        db.set_bot_status(True)
+        bot.answer_callback_query(call.id, "✅ بات روشن شد!")
+        # به‌روزرسانی پیام
+        stats = db.get_stats()
+        text = (
+            "👑 **پنل مدیریت**\n\n"
+            f"📊 **آمار کلی:**\n"
+            f"👥 کل کاربران: {stats['total_users']}\n"
+            f"👑 ادمین‌ها: {stats['admin_users']}\n"
+            f"💎 VIP: {stats['vip_users']}\n\n"
+            f"⚡ **وضعیت بات:** 🟢 روشن"
+        )
+        bot.edit_message_text(text, call.message.chat.id, call.message.message_id, parse_mode="Markdown")
+    
+    elif call.data == "admin_bot_off":
+        db.set_bot_status(False)
+        bot.answer_callback_query(call.id, "✅ بات خاموش شد!")
+        # به‌روزرسانی پیام
+        stats = db.get_stats()
+        text = (
+            "👑 **پنل مدیریت**\n\n"
+            f"📊 **آمار کلی:**\n"
+            f"👥 کل کاربران: {stats['total_users']}\n"
+            f"👑 ادمین‌ها: {stats['admin_users']}\n"
+            f"💎 VIP: {stats['vip_users']}\n\n"
+            f"⚡ **وضعیت بات:** 🔴 خاموش"
+        )
+        bot.edit_message_text(text, call.message.chat.id, call.message.message_id, parse_mode="Markdown")
+    
+    elif call.data == "admin_full_stats":
+        stats = db.get_stats()
+        text = (
+            "📊 **آمار کامل**\n\n"
+            f"👥 کل کاربران: {stats['total_users']}\n"
+            f"👑 ادمین‌ها: {stats['admin_users']}\n"
+            f"💎 VIP: {stats['vip_users']}\n\n"
+            f"📱 SMS درخواست: {stats['sms_requests']}\n"
+            f"📞 تماس درخواست: {stats['call_requests']}\n"
+            f"💎 ترکیبی درخواست: {stats['combo_requests']}\n"
+            f"📊 کل درخواست: {stats['total_requests']}"
+        )
+        bot.send_message(call.message.chat.id, text, parse_mode="Markdown")
+    
+    elif call.data == "admin_reset_webhook":
         set_webhook()
-        bot.answer_callback_query(call.id, "✅ Webhook ریست شد")
+        bot.answer_callback_query(call.id, "✅ Webhook ریست شد!")
 
 def process_vip_add(message):
     try:
         user_id = int(message.text.strip())
-        msg = bot.send_message(message.chat.id, "📅 تعداد روزها (پیش‌فرض 30):")
+        msg = bot.send_message(message.chat.id, "📅 تعداد روزهای VIP را وارد کنید (پیش‌فرض 30):")
         bot.register_next_step_handler(msg, process_vip_days, user_id)
     except:
-        bot.send_message(message.chat.id, "❌ آیدی نامعتبر!")
+        bot.send_message(message.chat.id, "❌ آیدی نامعتبر است!")
 
 def process_vip_days(message, user_id):
     try:
@@ -777,13 +1182,37 @@ def process_vip_days(message, user_id):
             bot.send_message(user_id, 
                 f"💎 **تبریک! شما VIP شدید!**\n\n"
                 f"✅ اشتراک {days} روزه فعال شد.\n"
-                f"📊 محدودیت شما: {VIP_LIMIT} بار در روز")
+                f"📊 محدودیت شما:\n"
+                f"📱 SMS: {VIP_SMS_LIMIT} بار\n"
+                f"📞 تماس: {VIP_CALL_LIMIT} بار\n"
+                f"💎 ترکیبی: {VIP_COMBO_LIMIT} بار")
         except:
             pass
         
-        bot.send_message(message.chat.id, f"✅ کاربر {user_id} VIP شد!")
+        bot.send_message(message.chat.id, f"✅ کاربر {user_id} با {days} روز VIP شد!")
     except Exception as e:
         bot.send_message(message.chat.id, f"❌ خطا: {e}")
+
+def process_admin_add(message):
+    try:
+        user_id = int(message.text.strip())
+        
+        if user_id in SUPER_ADMINS:
+            bot.send_message(message.chat.id, "❌ این کاربر سوپر ادمین است و نیازی به افزودن ندارد!")
+            return
+        
+        db.make_admin(user_id)
+        
+        try:
+            bot.send_message(user_id, 
+                f"👑 **تبریک! شما به جمع ادمین‌ها پیوستید!**\n\n"
+                f"✅ اکنون به پنل مدیریت دسترسی دارید.")
+        except:
+            pass
+        
+        bot.send_message(message.chat.id, f"✅ کاربر {user_id} با موفقیت ادمین شد!")
+    except:
+        bot.send_message(message.chat.id, "❌ آیدی نامعتبر است!")
 
 @bot.message_handler(commands=['stop'])
 def stop_process(message):
@@ -794,6 +1223,7 @@ def stop_process(message):
         bot.send_message(message.chat.id, "⚠️ فرآیندی در حال اجرا نیست.")
 
 @bot.message_handler(func=lambda m: True)
+@membership_required
 def default_handler(message):
     bot.reply_to(
         message, 
@@ -804,18 +1234,24 @@ def default_handler(message):
 
 if __name__ == "__main__":
     print("="*60)
-    print("🚀 ربات SMS Bomber - نسخه Railway + Liara")
+    print("🚀 SMS + Call + Combo Bomber Bot - نسخه نهایی")
     print("="*60)
     print(f"👨‍💻 سازنده: @{DEVELOPER_USERNAME}")
-    print(f"📢 کانال: {SUPPORT_CHANNEL}")
-    print(f"📌 آدرس API: {LIARA_API_URL}")
-    print(f"📌 API Token: {API_TOKEN[:20]}...")
+    print(f"📢 کانال پشتیبانی: {SUPPORT_CHANNEL}")
+    print(f"👑 سوپر ادمین‌ها: {SUPER_ADMINS}")
+    print(f"📱 SMS Limit: عادی {NORMAL_SMS_LIMIT} | VIP {VIP_SMS_LIMIT}")
+    print(f"📞 Call Limit: عادی {NORMAL_CALL_LIMIT} | VIP {VIP_CALL_LIMIT}")
+    print(f"💎 Combo Limit: VIP {VIP_COMBO_LIMIT}")
     print("="*60)
     
+    # ترد زنده نگه داشتن
+    keep_alive_thread = threading.Thread(target=keep_alive, daemon=True)
+    keep_alive_thread.start()
+    print("✅ ترد زنده نگه داشتن فعال شد")
+    
     # تنظیم webhook
-    threading.Thread(target=set_webhook, daemon=True).start()
+    set_webhook()
     
     # اجرا
-    port = PORT
-    print(f"🚀 اجرا روی پورت {port}")
-    app.run(host='0.0.0.0', port=port)
+    print(f"🚀 اجرا روی پورت {PORT}")
+    app.run(host='0.0.0.0', port=PORT)
