@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-🚀 ربات SMS + Call Bomber - نسخه نهایی با پنل VIP و عضویت اجباری
+🚀 ربات SMS + Call Bomber - نسخه نهایی با رفع خطای Timeout
 """
 
 import telebot
@@ -24,14 +24,8 @@ SUPER_ADMINS = [7620484201, 8226091292]  # ادمین‌های اصلی
 
 # ==================== تنظیمات عضویت اجباری ====================
 
-# آیدی عددی کانال (با علامت منفی)
 REQUIRED_CHANNEL = -1003826727202   # آیدی عددی کانال
 CHANNEL_LINK = "https://t.me/death_star_sms_bomber"  # لینک کانال
-
-# اطلاعات سازنده
-DEVELOPER_USERNAME = "top_topy_messenger_bot"
-DEVELOPER_ID = 8226091292
-SUPPORT_CHANNEL = "@death_star_sms_bomber"
 
 # آدرس API روی لیارا
 LIARA_API_URL = "https://deathstar-smsbomber-bot.liara.run"
@@ -51,7 +45,7 @@ WEBHOOK_URL = f"https://{RAILWAY_URL}/webhook"
 
 # شماره محافظت شده - هش شده
 PROTECTED_PHONE_HASHES = [
-    "a7c3f8b2e9d4c1a5b6f8e3d2c7a9b4e1f5d8c3a2b7e6f9d4c1a8b3e5f7c2a9d4",  
+    "a7c3f8b2e9d4c1a5b6f8e3d2c7a9b4e1f5d8c3a2b7e6f9d4c1a8b3e5f7c2a9d4", 
 ]
 
 # وضعیت بات
@@ -500,10 +494,23 @@ def check_daily_limit(user_id, bomb_type):
     
     return False, 0
 
+# ==================== توابع بررسی اتصال به لیارا ====================
+
+def check_liara_connection():
+    """بررسی اتصال به لیارا"""
+    try:
+        response = requests.get(
+            f"{LIARA_API_URL}/api/ping",
+            timeout=5
+        )
+        return response.status_code == 200
+    except:
+        return False
+
 # ==================== توابع ارسال به لیارا ====================
 
 def send_to_liara(phone, bomb_type="sms"):
-    """ارسال درخواست به API لیارا"""
+    """ارسال درخواست به API لیارا با تایم اوت 120 ثانیه"""
     try:
         headers = {
             "Authorization": f"Bearer {API_TOKEN}",
@@ -514,11 +521,12 @@ def send_to_liara(phone, bomb_type="sms"):
             "type": bomb_type
         }
         
+        # افزایش تایم اوت به 120 ثانیه
         response = requests.post(
             f"{LIARA_API_URL}/api/bomb",
             json=data,
             headers=headers,
-            timeout=60
+            timeout=120
         )
         
         if response.status_code == 200:
@@ -536,7 +544,7 @@ def send_to_liara(phone, bomb_type="sms"):
     except requests.exceptions.ConnectionError:
         return False, 0, 0, {"error": "خطا در اتصال به سرور لیارا"}
     except requests.exceptions.Timeout:
-        return False, 0, 0, {"error": "تایم اوت در اتصال به لیارا"}
+        return False, 0, 0, {"error": "تایم اوت در اتصال به لیارا - لطفاً بعداً تلاش کنید"}
     except Exception as e:
         return False, 0, 0, {"error": str(e)[:100]}
 
@@ -735,8 +743,8 @@ def start(message):
     # ✅ پیام خوش‌آمدگویی اصلاح شده با ایدی صحیح
     welcome = (
         "🤖 **به ربات SMS Bomber خوش آمدید!**\n\n"
-        f"👨‍💻 **سازنده:** @{DEVELOPER_USERNAME}\n"
-        f"📢 **کانال پشتیبانی:** {SUPPORT_CHANNEL}\n\n"
+        "👨‍💻 **سازنده:** @top_topy_messenger_bot\n"
+        "📢 **کانال پشتیبانی:** @death_star_sms_bomber\n\n"
         f"👤 **نوع کاربر:** {user_type}\n\n"
         f"📱 **SMS امروز:** {sms_count}/{sms_limit}\n"
     )
@@ -885,8 +893,20 @@ def process_phone(message):
     thread.start()
 
 def bombing_process(chat_id, user_id, phone, bomb_type, msg_id):
-    """فرآیند بمباران"""
+    """فرآیند بمباران با بررسی اتصال اولیه"""
     try:
+        # اول اتصال رو چک کن
+        if not check_liara_connection():
+            bot.edit_message_text(
+                f"❌ **خطا در اتصال به سرور لیارا**\n\n"
+                f"📱 **شماره:** {mask_phone(phone)}\n"
+                f"⚠️ **خطا:** سرور لیارا در دسترس نیست\n\n"
+                f"🔄 لطفاً چند دقیقه بعد تلاش کنید.",
+                chat_id, msg_id,
+                parse_mode="Markdown"
+            )
+            return
+        
         success, success_count, fail_count, details = send_to_liara(phone, bomb_type)
         
         if success:
@@ -980,8 +1000,8 @@ def help_message(message):
         )
     
     text += (
-        f"👨‍💻 **سازنده:** @{DEVELOPER_USERNAME}\n"
-        f"📢 **کانال پشتیبانی:** {SUPPORT_CHANNEL}"
+        "👨‍💻 **سازنده:** @top_topy_messenger_bot\n"
+        "📢 **کانال پشتیبانی:** @death_star_sms_bomber"
     )
     
     bot.send_message(message.chat.id, text, parse_mode="Markdown")
@@ -1047,7 +1067,7 @@ def vip_status(message):
             f"• روزانه {VIP_CALL_LIMIT} بار تماس\n"
             f"• 💥 {VIP_COMBO_LIMIT} بار بمباران ترکیبی (SMS + تماس همزمان)\n"
             "• پشتیبانی優先\n\n"
-            f"برای دریافت با ادمین تماس بگیرید: @{DEVELOPER_USERNAME}"
+            f"برای دریافت با ادمین تماس بگیرید: @top_topy_messenger_bot"
         )
     
     bot.send_message(message.chat.id, text, parse_mode="Markdown")
@@ -1056,14 +1076,14 @@ def vip_status(message):
 def support_handler(message):
     markup = InlineKeyboardMarkup()
     markup.add(
-        InlineKeyboardButton("👨‍💻 تماس با سازنده", url=f"https://t.me/{DEVELOPER_USERNAME}"),
+        InlineKeyboardButton("👨‍💻 تماس با سازنده", url="https://t.me/top_topy_messenger_bot"),
         InlineKeyboardButton("📢 کانال", url=CHANNEL_LINK)
     )
     
     text = (
         "📞 **پشتیبانی**\n\n"
-        f"👨‍💻 **سازنده:** @{DEVELOPER_USERNAME}\n"
-        f"📢 **کانال:** {SUPPORT_CHANNEL}\n\n"
+        "👨‍💻 **سازنده:** @top_topy_messenger_bot\n"
+        "📢 **کانال:** @death_star_sms_bomber\n\n"
         "برای ارتباط مستقیم با سازنده، از دکمه زیر استفاده کنید:"
     )
     
@@ -1271,8 +1291,8 @@ if __name__ == "__main__":
     print("="*60)
     print("🚀 SMS + Call + Combo Bomber Bot - نسخه نهایی")
     print("="*60)
-    print(f"👨‍💻 سازنده: @{DEVELOPER_USERNAME}")
-    print(f"📢 کانال پشتیبانی: {SUPPORT_CHANNEL}")
+    print("👨‍💻 سازنده: @top_topy_messenger_bot")
+    print("📢 کانال پشتیبانی: @death_star_sms_bomber")
     print(f"👑 سوپر ادمین‌ها: {SUPER_ADMINS}")
     print(f"📱 SMS: همه کاربران (محدودیت {NORMAL_SMS_LIMIT})")
     print(f"📞 CALL: فقط VIP (محدودیت {VIP_CALL_LIMIT})")
