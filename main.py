@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-🚀 ربات SMS + Call Bomber - نسخه نهایی با رفع خطای Timeout
+🚀 ربات SMS + Call Bomber - نسخه نهایی با رفع خطای اتصال به لیارا
 """
 
 import telebot
@@ -72,7 +72,7 @@ def check_membership(user_id):
         return True
 
     except Exception as e:
-        print("Membership Check Error:", e)
+        print(f"⚠️ Membership check error: {e}")
         return False
 
 
@@ -499,18 +499,21 @@ def check_daily_limit(user_id, bomb_type):
 def check_liara_connection():
     """بررسی اتصال به لیارا"""
     try:
+        print(f"🔄 Checking Liara connection: {LIARA_API_URL}/health")
         response = requests.get(
-            f"{LIARA_API_URL}/api/ping",
+            f"{LIARA_API_URL}/health",
             timeout=5
         )
+        print(f"✅ Liara response: {response.status_code}")
         return response.status_code == 200
-    except:
+    except Exception as e:
+        print(f"❌ Connection error: {e}")
         return False
 
 # ==================== توابع ارسال به لیارا ====================
 
 def send_to_liara(phone, bomb_type="sms"):
-    """ارسال درخواست به API لیارا با تایم اوت 120 ثانیه"""
+    """ارسال درخواست به API لیارا"""
     try:
         headers = {
             "Authorization": f"Bearer {API_TOKEN}",
@@ -521,13 +524,15 @@ def send_to_liara(phone, bomb_type="sms"):
             "type": bomb_type
         }
         
-        # افزایش تایم اوت به 120 ثانیه
+        print(f"📤 Sending to Liara: {bomb_type} - {phone}")
         response = requests.post(
             f"{LIARA_API_URL}/api/bomb",
             json=data,
             headers=headers,
-            timeout=120
+            timeout=30
         )
+        
+        print(f"📥 Response: {response.status_code}")
         
         if response.status_code == 200:
             result = response.json()
@@ -541,11 +546,11 @@ def send_to_liara(phone, bomb_type="sms"):
                 pass
             return False, 0, 0, {"error": error_msg}
             
-    except requests.exceptions.ConnectionError:
-        return False, 0, 0, {"error": "خطا در اتصال به سرور لیارا"}
     except requests.exceptions.Timeout:
-        return False, 0, 0, {"error": "تایم اوت در اتصال به لیارا - لطفاً بعداً تلاش کنید"}
+        print("❌ Timeout error")
+        return False, 0, 0, {"error": "تایم اوت در اتصال به لیارا"}
     except Exception as e:
+        print(f"❌ Error: {e}")
         return False, 0, 0, {"error": str(e)[:100]}
 
 # ==================== صفحات وب ====================
@@ -740,7 +745,7 @@ def start(message):
     sms_count, call_count, combo_count = db.get_daily_counts(user_id)
     sms_limit, call_limit, combo_limit, user_type = db.get_user_limits(user_id)
     
-    # ✅ پیام خوش‌آمدگویی اصلاح شده با ایدی صحیح
+    # ✅ پیام خوش‌آمدگویی
     welcome = (
         "🤖 **به ربات SMS Bomber خوش آمدید!**\n\n"
         "👨‍💻 **سازنده:** @top_topy_messenger_bot\n"
@@ -1297,6 +1302,7 @@ if __name__ == "__main__":
     print(f"📱 SMS: همه کاربران (محدودیت {NORMAL_SMS_LIMIT})")
     print(f"📞 CALL: فقط VIP (محدودیت {VIP_CALL_LIMIT})")
     print(f"💎 COMBO: فقط VIP (محدودیت {VIP_COMBO_LIMIT})")
+    print(f"🌐 آدرس لیارا: {LIARA_API_URL}")
     print("="*60)
     
     # ترد زنده نگه داشتن
