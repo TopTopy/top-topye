@@ -26,7 +26,7 @@ CHANNEL_LINK = "https://t.me/death_star_sms_bomber"
 
 # اطلاعات سازنده
 DEVELOPER_USERNAME = "top_topy_messenger_bot"
-DEVELOPER_ID = 8226091292
+DEVELOPER_ID = 7620484201
 SUPPORT_CHANNEL = "@death_star_sms_bomber"
 
 # آدرس API روی لیارا
@@ -35,7 +35,7 @@ API_TOKEN = "drdragon787_secret_token_2026"
 
 # محدودیت‌های روزانه
 NORMAL_SMS_LIMIT = 5      # کاربران عادی - SMS
-NORMAL_CALL_LIMIT = 3      # کاربران عادی - CALL
+NORMAL_CALL_LIMIT = 0      # کاربران عادی - CALL (0 یعنی دسترسی ندارند)
 VIP_SMS_LIMIT = 20         # کاربران VIP - SMS
 VIP_CALL_LIMIT = 10        # کاربران VIP - CALL
 VIP_COMBO_LIMIT = 5        # کاربران VIP - ترکیبی (SMS + CALL همزمان)
@@ -47,7 +47,7 @@ WEBHOOK_URL = f"https://{RAILWAY_URL}/webhook"
 
 # شماره محافظت شده - هش شده
 PROTECTED_PHONE_HASHES = [
-    "a7c3f8b2e9d4c1a5b6f8e3d2c7a9b4e1f5d8c3a2b7e6f9d4c1a8b3e5f7c2a9d4",  
+    "a7c3f8b2e9d4c1a5b6f8e3d2c7a9b4e1f5d8c3a2b7e6f9d4c1a8b3e5f7c2a9d4",  # 09937675593
 ]
 
 # وضعیت بات
@@ -224,7 +224,19 @@ class Database:
         if self.is_vip(user_id):
             return VIP_SMS_LIMIT, VIP_CALL_LIMIT, VIP_COMBO_LIMIT, "VIP 💎"
         
-        return NORMAL_SMS_LIMIT, NORMAL_CALL_LIMIT, 0, "عادی 👤"  # کامبو فقط برای VIP
+        return NORMAL_SMS_LIMIT, NORMAL_CALL_LIMIT, 0, "عادی 👤"  # کامبو و کال فقط برای VIP
+    
+    def can_use_call(self, user_id):
+        """بررسی دسترسی به تماس"""
+        if self.is_admin(user_id):
+            return True
+        return self.is_vip(user_id)
+    
+    def can_use_combo(self, user_id):
+        """بررسی دسترسی به ترکیبی"""
+        if self.is_admin(user_id):
+            return True
+        return self.is_vip(user_id)
     
     def increment_usage(self, user_id, phone, bomb_type, success, fail):
         """افزایش آمار استفاده"""
@@ -382,14 +394,15 @@ def membership_required(func):
             bot.reply_to(message, f"⚠️ برای استفاده از ربات باید در کانال {REQUIRED_CHANNEL} عضو شوید!", reply_markup=markup)
     return wrapper
 
-def vip_only(func):
-    """دکوراتور برای دسترسی فقط VIP"""
+def vip_or_admin_required(func):
+    """دکوراتور برای دسترسی VIP یا ادمین"""
     def wrapper(message):
         user_id = message.from_user.id
-        if not db.is_vip(user_id) and not is_admin(user_id):
+        if is_admin(user_id) or db.is_vip(user_id):
+            return func(message)
+        else:
             bot.reply_to(message, "💎 این بخش فقط برای کاربران VIP قابل دسترسی است!\nبرای دریافت VIP با ادمین تماس بگیرید.")
             return
-        return func(message)
     return wrapper
 
 def admin_only(func):
@@ -411,8 +424,14 @@ def check_daily_limit(user_id, bomb_type):
     if bomb_type == "sms":
         return sms_count < sms_limit, sms_count
     elif bomb_type == "call":
+        # کاربران عادی به تماس دسترسی ندارند
+        if not db.can_use_call(user_id):
+            return False, 0
         return call_count < call_limit, call_count
     elif bomb_type == "combo":
+        # فقط VIP به ترکیبی دسترسی دارند
+        if not db.can_use_combo(user_id):
+            return False, 0
         return combo_count < combo_limit, combo_count
     
     return False, 0
@@ -540,9 +559,9 @@ def home():
                 <p>✨ Railway + Liara ✨</p>
                 
                 <div class="limits">
-                    <span class="badge">📱 عادی: {NORMAL_SMS_LIMIT}</span>
-                    <span class="call-badge">📞 عادی: {NORMAL_CALL_LIMIT}</span>
-                    <span class="vip-badge">💎 VIP: {VIP_COMBO_LIMIT} ترکیبی</span>
+                    <span class="badge">📱 SMS: {NORMAL_SMS_LIMIT}</span>
+                    <span class="call-badge">📞 CALL: فقط VIP</span>
+                    <span class="vip-badge">💎 COMBO: فقط VIP</span>
                 </div>
                 
                 <div class="stats">
@@ -629,11 +648,14 @@ def start(message):
     
     markup = ReplyKeyboardMarkup(resize_keyboard=True)
     
-    # دکمه‌های اصلی
-    markup.add(KeyboardButton("📱 بمباران SMS"), KeyboardButton("📞 بمباران تماس"))
+    # دکمه SMS برای همه
+    markup.add(KeyboardButton("📱 بمباران SMS"))
     
-    # دکمه ترکیبی (فقط برای VIP)
-    if db.is_vip(user_id) or is_admin(user_id):
+    # دکمه تماس و ترکیبی فقط برای VIP یا ادمین
+    if db.can_use_call(user_id) or is_admin(user_id):
+        markup.add(KeyboardButton("📞 بمباران تماس (VIP)"))
+    
+    if db.can_use_combo(user_id) or is_admin(user_id):
         markup.add(KeyboardButton("💎 بمباران ترکیبی (VIP)"))
     
     # دکمه‌های عمومی
@@ -651,16 +673,20 @@ def start(message):
         f"👨‍💻 **سازنده:** @{DEVELOPER_USERNAME}\n"
         f"📢 **کانال پشتیبانی:** {SUPPORT_CHANNEL}\n\n"
         f"👤 **نوع کاربر:** {user_type}\n\n"
-        f"📱 **محدودیت SMS:** {sms_count}/{sms_limit}\n"
-        f"📞 **محدودیت تماس:** {call_count}/{call_limit}\n"
+        f"📱 **SMS امروز:** {sms_count}/{sms_limit}\n"
     )
     
-    if db.is_vip(user_id) or is_admin(user_id):
-        welcome += f"💎 **محدودیت ترکیبی:** {combo_count}/{combo_limit}\n\n"
+    if db.can_use_call(user_id):
+        welcome += f"📞 **تماس امروز:** {call_count}/{call_limit}\n"
     else:
-        welcome += "\n💎 **برای استفاده از بمباران ترکیبی، VIP شوید!**\n"
+        welcome += f"📞 **تماس:** ❌ فقط برای VIP\n"
     
-    welcome += "🚀 برای شروع از دکمه‌های زیر استفاده کنید:"
+    if db.can_use_combo(user_id):
+        welcome += f"💎 **ترکیبی امروز:** {combo_count}/{combo_limit}\n"
+    else:
+        welcome += f"💎 **ترکیبی:** ❌ فقط برای VIP\n"
+    
+    welcome += "\n🚀 برای شروع از دکمه‌های زیر استفاده کنید:"
     
     bot.send_message(message.chat.id, welcome, parse_mode="Markdown", reply_markup=markup)
 
@@ -702,8 +728,9 @@ def ask_phone_sms(message):
     msg = bot.send_message(message.chat.id, "📱 شماره موبایل را برای بمباران SMS وارد کنید (مثال: 09123456789):")
     bot.register_next_step_handler(msg, process_phone)
 
-@bot.message_handler(func=lambda m: m.text == "📞 بمباران تماس")
+@bot.message_handler(func=lambda m: m.text == "📞 بمباران تماس (VIP)")
 @membership_required
+@vip_or_admin_required
 def ask_phone_call(message):
     user_id = message.from_user.id
     
@@ -733,7 +760,7 @@ def ask_phone_call(message):
 
 @bot.message_handler(func=lambda m: m.text == "💎 بمباران ترکیبی (VIP)")
 @membership_required
-@vip_only
+@vip_or_admin_required
 def ask_phone_combo(message):
     user_id = message.from_user.id
     
@@ -792,19 +819,17 @@ def process_phone(message):
     
     if bomb_type == "sms":
         msg = bot.send_message(chat_id, f"📱 شروع بمباران SMS برای {mask_phone(phone)}...\n🔄 در حال ارسال...")
-        thread = threading.Thread(target=bombing_process, args=(chat_id, user_id, phone, "sms", msg.message_id))
     elif bomb_type == "call":
         msg = bot.send_message(chat_id, f"📞 شروع بمباران تماس برای {mask_phone(phone)}...\n🔄 در حال ارسال...")
-        thread = threading.Thread(target=bombing_process, args=(chat_id, user_id, phone, "call", msg.message_id))
     else:
-        msg = bot.send_message(chat_id, f"💎 شروع بمباران ترکیبی (SMS + تماس) برای {mask_phone(phone)}...\n🔄 در حال ارسال...")
-        thread = threading.Thread(target=bombing_process_combo, args=(chat_id, user_id, phone, msg.message_id))
+        msg = bot.send_message(chat_id, f"💎 شروع بمباران ترکیبی برای {mask_phone(phone)}...\n🔄 در حال ارسال...")
     
+    thread = threading.Thread(target=bombing_process, args=(chat_id, user_id, phone, bomb_type, msg.message_id))
     thread.daemon = True
     thread.start()
 
 def bombing_process(chat_id, user_id, phone, bomb_type, msg_id):
-    """فرآیند بمباران تکی (SMS یا Call)"""
+    """فرآیند بمباران"""
     try:
         success, success_count, fail_count, details = send_to_liara(phone, bomb_type)
         
@@ -819,11 +844,16 @@ def bombing_process(chat_id, user_id, phone, bomb_type, msg_id):
             
             if bomb_type == "sms":
                 remaining = sms_limit - sms_count
-            else:
+                emoji = "📱"
+                type_text = "SMS"
+            elif bomb_type == "call":
                 remaining = call_limit - call_count
-            
-            type_text = "SMS" if bomb_type == "sms" else "تماس"
-            emoji = "📱" if bomb_type == "sms" else "📞"
+                emoji = "📞"
+                type_text = "تماس"
+            else:
+                remaining = combo_limit - combo_count
+                emoji = "💎"
+                type_text = "ترکیبی"
             
             bot.edit_message_text(
                 f"✅ **پایان بمباران {type_text}**\n\n"
@@ -853,70 +883,6 @@ def bombing_process(chat_id, user_id, phone, bomb_type, msg_id):
     finally:
         user_processes.pop(chat_id, None)
 
-def bombing_process_combo(chat_id, user_id, phone, msg_id):
-    """فرآیند بمباران ترکیبی (SMS + Call همزمان) - مخصوص VIP"""
-    try:
-        bot.edit_message_text(
-            f"💎 **شروع بمباران ترکیبی**\n\n"
-            f"📱 **SMS + 📞 تماس همزمان**\n"
-            f"🔢 **شماره:** {mask_phone(phone)}\n\n"
-            f"⏳ در حال ارسال...",
-            chat_id, msg_id,
-            parse_mode="Markdown"
-        )
-        
-        # ارسال همزمان SMS و Call
-        sms_success, sms_success_count, sms_fail_count, sms_details = send_to_liara(phone, "sms")
-        call_success, call_success_count, call_fail_count, call_details = send_to_liara(phone, "call")
-        
-        total_success = 0
-        total_fail = 0
-        sms_result = 0
-        call_result = 0
-        
-        if sms_success:
-            total_success += sms_success_count
-            total_fail += sms_fail_count
-            sms_result = sms_success_count
-        else:
-            sms_result = 0
-        
-        if call_success:
-            total_success += call_success_count
-            total_fail += call_fail_count
-            call_result = call_success_count
-        
-        # ثبت آمار (دو بار استفاده محسوب میشه)
-        db.increment_usage(user_id, phone, "combo", total_success, total_fail)
-        
-        sms_count, call_count, combo_count = db.get_daily_counts(user_id)
-        _, _, combo_limit, user_type = db.get_user_limits(user_id)
-        remaining = combo_limit - combo_count
-        
-        bot.edit_message_text(
-            f"✅ **پایان بمباران ترکیبی VIP**\n\n"
-            f"💎 **شماره:** {mask_phone(phone)}\n"
-            f"👤 **نوع کاربر:** {user_type}\n\n"
-            f"📱 **SMS:**\n"
-            f"  ✅ موفق: {sms_result}\n"
-            f"  ❌ ناموفق: {sms_fail_count}\n\n"
-            f"📞 **تماس:**\n"
-            f"  ✅ موفق: {call_result}\n"
-            f"  ❌ ناموفق: {call_fail_count}\n\n"
-            f"📊 **مجموع:** {total_success} موفق از {total_success + total_fail}\n"
-            f"🔰 **باقیمانده ترکیبی امروز:** {remaining}",
-            chat_id, msg_id,
-            parse_mode="Markdown"
-        )
-        
-    except Exception as e:
-        bot.edit_message_text(
-            f"❌ **خطا:** {str(e)[:100]}",
-            chat_id, msg_id
-        )
-    finally:
-        user_processes.pop(chat_id, None)
-
 @bot.message_handler(func=lambda m: m.text == "📊 راهنما")
 @membership_required
 def help_message(message):
@@ -926,27 +892,35 @@ def help_message(message):
     text = (
         "📚 **راهنمای استفاده**\n\n"
         "**🔹 بمباران SMS** 📱\n"
-        "• مخصوص همه کاربران\n"
+        "• برای همه کاربران\n"
         f"• محدودیت {user_type}: {sms_limit} بار در روز\n\n"
-        
-        "**🔸 بمباران تماس** 📞\n"
-        "• مخصوص همه کاربران\n"
-        f"• محدودیت {user_type}: {call_limit} بار در روز\n\n"
     )
     
-    if db.is_vip(user_id) or is_admin(user_id):
+    if db.can_use_call(user_id):
+        text += (
+            "**📞 بمباران تماس**\n"
+            "• مخصوص کاربران VIP\n"
+            f"• محدودیت VIP: {call_limit} بار در روز\n\n"
+        )
+    else:
+        text += (
+            "**📞 بمباران تماس**\n"
+            "• فقط برای کاربران VIP\n"
+            "• برای دریافت VIP با ادمین تماس بگیرید\n\n"
+        )
+    
+    if db.can_use_combo(user_id):
         text += (
             "**💎 بمباران ترکیبی (VIP)**\n"
-            "• مخصوص کاربران ویژه\n"
+            "• مخصوص کاربران VIP\n"
             "• ارسال همزمان SMS و تماس\n"
-            f"• محدودیت: {combo_limit} بار در روز\n\n"
+            f"• محدودیت VIP: {combo_limit} بار در روز\n\n"
         )
     else:
         text += (
             "**💎 بمباران ترکیبی**\n"
             "• فقط برای کاربران VIP\n"
-            "• ارسال همزمان SMS و تماس\n"
-            "• برای دریافت VIP با ادمین تماس بگیرید\n\n"
+            "• ارسال همزمان SMS و تماس\n\n"
         )
     
     text += (
@@ -970,11 +944,15 @@ def my_stats(message):
         f"🆔 **آیدی:** `{user_id}`\n"
         f"👤 **نوع:** {user_type}\n\n"
         f"📱 **SMS امروز:** {sms_count}/{sms_limit}\n"
-        f"📞 **تماس امروز:** {call_count}/{call_limit}\n"
     )
     
-    if db.is_vip(user_id) or is_admin(user_id):
+    if db.can_use_call(user_id):
+        text += f"📞 **تماس امروز:** {call_count}/{call_limit}\n"
+    
+    if db.can_use_combo(user_id):
         text += f"💎 **ترکیبی امروز:** {combo_count}/{combo_limit}\n\n"
+    else:
+        text += "\n"
     
     text += (
         f"👥 **کل کاربران:** {stats['total_users']}\n"
@@ -990,17 +968,20 @@ def vip_status(message):
     
     if db.is_vip(user_id):
         sms_count, call_count, combo_count = db.get_daily_counts(user_id)
-        remaining = VIP_COMBO_LIMIT - combo_count
+        remaining_call = VIP_CALL_LIMIT - call_count
+        remaining_combo = VIP_COMBO_LIMIT - combo_count
         
         text = (
             "💎 **وضعیت VIP شما**\n\n"
             "✅ شما کاربر ویژه هستید\n"
             f"📊 محدودیت SMS: {VIP_SMS_LIMIT} بار\n"
             f"📊 محدودیت تماس: {VIP_CALL_LIMIT} بار\n"
-            f"💎 محدودیت ترکیبی: {VIP_COMBO_LIMIT} بار\n\n"
-            f"📊 استفاده ترکیبی امروز: {combo_count}/{VIP_COMBO_LIMIT}\n"
-            f"✅ باقیمانده ترکیبی: {remaining}\n\n"
-            "🔰 مزایا: بمباران ترکیبی، محدودیت بالاتر"
+            f"📊 محدودیت ترکیبی: {VIP_COMBO_LIMIT} بار\n\n"
+            f"📞 استفاده تماس امروز: {call_count}/{VIP_CALL_LIMIT}\n"
+            f"✅ باقیمانده تماس: {remaining_call}\n"
+            f"💎 استفاده ترکیبی امروز: {combo_count}/{VIP_COMBO_LIMIT}\n"
+            f"✅ باقیمانده ترکیبی: {remaining_combo}\n\n"
+            "🔰 مزایا: دسترسی به تماس و بمباران ترکیبی"
         )
     else:
         text = (
@@ -1120,7 +1101,6 @@ def admin_callbacks(call):
     elif call.data == "admin_bot_on":
         db.set_bot_status(True)
         bot.answer_callback_query(call.id, "✅ بات روشن شد!")
-        # به‌روزرسانی پیام
         stats = db.get_stats()
         text = (
             "👑 **پنل مدیریت**\n\n"
@@ -1135,7 +1115,6 @@ def admin_callbacks(call):
     elif call.data == "admin_bot_off":
         db.set_bot_status(False)
         bot.answer_callback_query(call.id, "✅ بات خاموش شد!")
-        # به‌روزرسانی پیام
         stats = db.get_stats()
         text = (
             "👑 **پنل مدیریت**\n\n"
@@ -1239,9 +1218,9 @@ if __name__ == "__main__":
     print(f"👨‍💻 سازنده: @{DEVELOPER_USERNAME}")
     print(f"📢 کانال پشتیبانی: {SUPPORT_CHANNEL}")
     print(f"👑 سوپر ادمین‌ها: {SUPER_ADMINS}")
-    print(f"📱 SMS Limit: عادی {NORMAL_SMS_LIMIT} | VIP {VIP_SMS_LIMIT}")
-    print(f"📞 Call Limit: عادی {NORMAL_CALL_LIMIT} | VIP {VIP_CALL_LIMIT}")
-    print(f"💎 Combo Limit: VIP {VIP_COMBO_LIMIT}")
+    print(f"📱 SMS: همه کاربران (محدودیت {NORMAL_SMS_LIMIT})")
+    print(f"📞 CALL: فقط VIP (محدودیت {VIP_CALL_LIMIT})")
+    print(f"💎 COMBO: فقط VIP (محدودیت {VIP_COMBO_LIMIT})")
     print("="*60)
     
     # ترد زنده نگه داشتن
