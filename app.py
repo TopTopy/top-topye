@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-🤖 ربات SMS Bomber VIP - نسخه نهایی برای رندر
-بات روی رندر، API روی لیارا
+🤖 ربات ماشین حساب شیشه‌ای - نسخه VIP
 """
 
 import telebot
@@ -17,6 +16,7 @@ from datetime import datetime, date, timedelta
 from flask import Flask, request
 import os
 import sys
+import math
 
 # ==================== تنظیمات اصلی ====================
 
@@ -26,475 +26,275 @@ REQUIRED_CHANNEL = "@death_star_sms_bomber"
 CHANNEL_LINK = "https://t.me/death_star_sms_bomber"
 
 # اطلاعات سازنده
-DEVELOPER_USERNAME = "top_topy_messenger_bot"  # یوزرنیم بات سازنده
-DEVELOPER_ID = 7620484201  # آیدی عددی سازنده
-SUPPORT_CHANNEL = "@death_star_sms_bomber"  # کانال پشتیبانی
-
-# محدودیت‌های روزانه
-NORMAL_LIMIT = 5     # کاربران عادی
-VIP_LIMIT = 20       # کاربران ویژه
-
-# آدرس سرور API روی لیارا
-LIARA_API_URL = "https://deathstar-smsbomber-bot.liara.run"
-API_TOKEN = "drdragon787_secret_token_2026"
+DEVELOPER_USERNAME = "top_topy_messenger_bot"
+DEVELOPER_ID = 7620484201
+SUPPORT_CHANNEL = "@death_star_sms_bomber"
 
 # اسم سرویس رندر
 SERVICE_NAME = "ftyydftrye5r-6e5te"
 BASE_URL = f"https://{SERVICE_NAME}.onrender.com"
 WEBHOOK_URL = f"{BASE_URL}/webhook"
 
-# شماره محافظت شده - هش شده
-PROTECTED_PHONE_HASHES = [
-    "a7c3f8b2e9d4c1a5b6f8e3d2c7a9b4e1f5d8c3a2b7e6f9d4c1a8b3e5f7c2a9d4", 
-]
-
 # ==================== مقداردهی اولیه ====================
 
 app = Flask(__name__)
 bot = telebot.TeleBot(BOT_TOKEN)
-user_processes = {}
-support_tickets = {}  # برای ذخیره تیکت‌های پشتیبانی
 
-# ==================== دیتابیس پیشرفته ====================
-
-class Database:
-    def __init__(self):
-        self.conn = sqlite3.connect(':memory:', check_same_thread=False)
-        self.c = self.conn.cursor()
-        self.create_tables()
-        self.add_protected_numbers()
-    
-    def create_tables(self):
-        # جدول کاربران با اطلاعات کامل
-        self.c.execute('''CREATE TABLE users (
-            user_id INTEGER PRIMARY KEY,
-            username TEXT,
-            first_name TEXT,
-            last_name TEXT,
-            join_date TEXT,
-            last_reset_date TEXT,
-            daily_count INTEGER DEFAULT 0,
-            total_count INTEGER DEFAULT 0,
-            is_vip INTEGER DEFAULT 0,
-            vip_expiry TEXT,
-            is_admin INTEGER DEFAULT 0,
-            is_banned INTEGER DEFAULT 0,
-            ban_reason TEXT
-        )''')
-        
-        # جدول شماره‌های مسدود
-        self.c.execute('''CREATE TABLE blocked_phones (
-            phone_hash TEXT PRIMARY KEY,
-            date TEXT,
-            reason TEXT,
-            attempts INTEGER DEFAULT 0
-        )''')
-        
-        # جدول آمار روزانه
-        self.c.execute('''CREATE TABLE daily_stats (
-            date TEXT PRIMARY KEY,
-            total_requests INTEGER DEFAULT 0,
-            vip_requests INTEGER DEFAULT 0,
-            normal_requests INTEGER DEFAULT 0
-        )''')
-        
-        # جدول تیکت‌های پشتیبانی
-        self.c.execute('''CREATE TABLE support_tickets (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER,
-            username TEXT,
-            ticket_type TEXT,
-            message TEXT,
-            status TEXT DEFAULT 'باز',
-            date TEXT,
-            time TEXT,
-            admin_response TEXT,
-            response_date TEXT
-        )''')
-        
-        # جدول لاگ استفاده
-        self.c.execute('''CREATE TABLE usage_logs (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER,
-            phone_hash TEXT,
-            date TEXT,
-            time TEXT,
-            success_count INTEGER,
-            fail_count INTEGER,
-            is_vip INTEGER
-        )''')
-        
-        self.conn.commit()
-    
-    def add_protected_numbers(self):
-        today = datetime.now().strftime('%Y-%m-%d')
-        for h in PROTECTED_PHONE_HASHES:
-            self.c.execute("INSERT OR IGNORE INTO blocked_phones VALUES (?, ?, ?, ?)", 
-                          (h, today, "شماره محافظت شده", 0))
-        self.conn.commit()
-    
-    def get_user(self, user_id):
-        self.c.execute("SELECT * FROM users WHERE user_id = ?", (user_id,))
-        return self.c.fetchone()
-    
-    def register_user(self, user_id, username, first_name, last_name=""):
-        today = date.today().isoformat()
-        self.c.execute('''INSERT OR IGNORE INTO users 
-            (user_id, username, first_name, last_name, join_date, last_reset_date, daily_count, total_count, is_vip)
-            VALUES (?, ?, ?, ?, ?, ?, 0, 0, 0)''',
-            (user_id, username, first_name, last_name, today, today))
-        self.conn.commit()
-    
-    def is_vip(self, user_id):
-        self.c.execute("SELECT is_vip, vip_expiry FROM users WHERE user_id = ?", (user_id,))
-        result = self.c.fetchone()
-        if not result:
-            return False
-        is_vip, expiry = result
-        if is_vip and expiry:
-            if datetime.now().isoformat() > expiry:
-                self.c.execute("UPDATE users SET is_vip = 0, vip_expiry = NULL WHERE user_id = ?", (user_id,))
-                self.conn.commit()
-                return False
-        return bool(is_vip)
-    
-    def set_vip(self, user_id, days=30, admin_id=None):
-        expiry = (datetime.now() + timedelta(days=days)).isoformat()
-        self.c.execute("UPDATE users SET is_vip = 1, vip_expiry = ? WHERE user_id = ?", (expiry, user_id))
-        self.conn.commit()
-        return True
-    
-    def remove_vip(self, user_id):
-        self.c.execute("UPDATE users SET is_vip = 0, vip_expiry = NULL WHERE user_id = ?", (user_id,))
-        self.conn.commit()
-        return True
-    
-    def get_vip_list(self):
-        self.c.execute("SELECT user_id, username, first_name, vip_expiry FROM users WHERE is_vip = 1")
-        return self.c.fetchall()
-    
-    def get_daily_count(self, user_id):
-        today = date.today().isoformat()
-        self.c.execute("SELECT daily_count, last_reset_date FROM users WHERE user_id = ?", (user_id,))
-        result = self.c.fetchone()
-        if not result:
-            return 0
-        count, last_reset = result
-        if last_reset != today:
-            self.c.execute("UPDATE users SET daily_count = 0, last_reset_date = ? WHERE user_id = ?", (today, user_id))
-            self.conn.commit()
-            return 0
-        return count
-    
-    def increment_usage(self, user_id, success, fail):
-        today = date.today().isoformat()
-        now = datetime.now().strftime('%H:%M:%S')
-        
-        # آپدیت آمار کاربر
-        self.c.execute('''UPDATE users SET 
-            daily_count = daily_count + 1,
-            total_count = total_count + 1
-            WHERE user_id = ?''', (user_id,))
-        
-        # ثبت لاگ
-        phone_hash = "unknown"
-        is_vip = 1 if self.is_vip(user_id) else 0
-        
-        self.c.execute('''INSERT INTO usage_logs 
-            (user_id, phone_hash, date, time, success_count, fail_count, is_vip)
-            VALUES (?, ?, ?, ?, ?, ?, ?)''',
-            (user_id, phone_hash, today, now, success, fail, is_vip))
-        
-        # آپدیت آمار کلی
-        self.c.execute('''INSERT OR REPLACE INTO daily_stats (date, total_requests, vip_requests, normal_requests)
-            VALUES (?, 
-                COALESCE((SELECT total_requests + 1 FROM daily_stats WHERE date = ?), 1),
-                COALESCE((SELECT vip_requests + ? FROM daily_stats WHERE date = ?), ?),
-                COALESCE((SELECT normal_requests + ? FROM daily_stats WHERE date = ?), ?)
-            )''', 
-            (today, today, 1 if is_vip else 0, today, 1 if is_vip else 0,
-             1 if not is_vip else 0, today, 1 if not is_vip else 0))
-        
-        self.conn.commit()
-    
-    def get_user_stats(self, user_id):
-        self.c.execute("SELECT total_count, join_date, is_vip, vip_expiry FROM users WHERE user_id = ?", (user_id,))
-        result = self.c.fetchone()
-        if not result:
-            return 0, "نامشخص", False, None
-        return result
-    
-    def get_global_stats(self):
-        self.c.execute("SELECT COUNT(*) FROM users")
-        total_users = self.c.fetchone()[0]
-        
-        self.c.execute("SELECT COUNT(*) FROM users WHERE is_vip = 1")
-        vip_users = self.c.fetchone()[0]
-        
-        self.c.execute("SELECT SUM(total_requests) FROM daily_stats")
-        total_requests = self.c.fetchone()[0] or 0
-        
-        self.c.execute("SELECT SUM(vip_requests) FROM daily_stats")
-        vip_requests = self.c.fetchone()[0] or 0
-        
-        self.c.execute("SELECT date, total_requests, vip_requests, normal_requests FROM daily_stats ORDER BY date DESC LIMIT 7")
-        weekly = self.c.fetchall()
-        
-        return {
-            "total_users": total_users,
-            "vip_users": vip_users,
-            "total_requests": total_requests,
-            "vip_requests": vip_requests,
-            "normal_requests": total_requests - vip_requests,
-            "weekly": weekly
-        }
-    
-    def is_phone_protected(self, phone):
-        h = hashlib.sha256(phone.encode()).hexdigest()
-        self.c.execute("SELECT * FROM blocked_phones WHERE phone_hash = ?", (h,))
-        result = self.c.fetchone()
-        if result:
-            self.c.execute("UPDATE blocked_phones SET attempts = attempts + 1 WHERE phone_hash = ?", (h,))
-            self.conn.commit()
-            return True
-        return False
-    
-    # توابع پشتیبانی
-    def add_ticket(self, user_id, username, ticket_type, message):
-        today = date.today().isoformat()
-        now = datetime.now().strftime('%H:%M:%S')
-        self.c.execute('''INSERT INTO support_tickets 
-            (user_id, username, ticket_type, message, status, date, time)
-            VALUES (?, ?, ?, ?, 'باز', ?, ?)''',
-            (user_id, username, ticket_type, message, today, now))
-        self.conn.commit()
-        return self.c.lastrowid
-    
-    def get_user_tickets(self, user_id):
-        self.c.execute('''SELECT id, ticket_type, message, status, date, time, admin_response 
-                         FROM support_tickets WHERE user_id = ? ORDER BY id DESC''', (user_id,))
-        return self.c.fetchall()
-    
-    def get_all_tickets(self, status=None):
-        if status:
-            self.c.execute('''SELECT id, user_id, username, ticket_type, message, status, date, time 
-                            FROM support_tickets WHERE status = ? ORDER BY id DESC''', (status,))
-        else:
-            self.c.execute('''SELECT id, user_id, username, ticket_type, message, status, date, time 
-                            FROM support_tickets ORDER BY id DESC''')
-        return self.c.fetchall()
-    
-    def respond_to_ticket(self, ticket_id, response):
-        now = datetime.now().isoformat()
-        self.c.execute('''UPDATE support_tickets 
-                         SET status = 'پاسخ داده شده', admin_response = ?, response_date = ?
-                         WHERE id = ?''', (response, now, ticket_id))
-        self.conn.commit()
-    
-    def close_ticket(self, ticket_id):
-        self.c.execute("UPDATE support_tickets SET status = 'بسته شده' WHERE id = ?", (ticket_id,))
-        self.conn.commit()
-
-# ایجاد دیتابیس
-db = Database()
-
-# ==================== توابع کمکی ====================
-
-def hash_phone(phone):
-    return hashlib.sha256(phone.encode()).hexdigest()
-
-def mask_phone(phone):
-    return phone[:4] + "****" + phone[-4:]
-
-def is_admin(user_id):
-    return user_id in ADMIN_IDS or (db.get_user(user_id) and db.get_user(user_id)[10] == 1)
-
-def is_developer(user_id):
-    return user_id == DEVELOPER_ID
-
-def check_membership(user_id):
-    try:
-        member = bot.get_chat_member(REQUIRED_CHANNEL, user_id)
-        return member.status in ['member', 'administrator', 'creator']
-    except:
-        return False
-
-def membership_required(func):
-    def wrapper(message):
-        user_id = message.from_user.id
-        if is_admin(user_id) or check_membership(user_id):
-            return func(message)
-        else:
-            markup = InlineKeyboardMarkup()
-            markup.add(InlineKeyboardButton("📢 عضویت در کانال", url=CHANNEL_LINK))
-            markup.add(InlineKeyboardButton("✅ بررسی عضویت", callback_data="check_join"))
-            bot.reply_to(message, f"⚠️ باید در کانال {REQUIRED_CHANNEL} عضو شوید!", reply_markup=markup)
-    return wrapper
-
-def check_daily_limit(user_id):
-    if is_admin(user_id):
-        return True, 0, "ادمین"
-    
-    daily = db.get_daily_count(user_id)
-    
-    if db.is_vip(user_id):
-        return daily < VIP_LIMIT, daily, "VIP"
-    else:
-        return daily < NORMAL_LIMIT, daily, "عادی"
-
-# ==================== توابع API ====================
-
-def get_random_ua():
-    agents = [
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36",
-        "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148",
-        "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Chrome/112.0.0.0 Mobile Safari/537.36",
-    ]
-    return random.choice(agents)
-
-def send_request_to_liara(phone):
-    try:
-        headers = {
-            "Authorization": f"Bearer {API_TOKEN}",
-            "Content-Type": "application/json"
-        }
-        
-        data = {
-            "phone": phone,
-            "timestamp": time.time(),
-            "request_id": random.randint(1000, 9999)
-        }
-        
-        response = requests.post(
-            f"{LIARA_API_URL}/api/bomb",
-            json=data,
-            headers=headers,
-            timeout=30
-        )
-        
-        if response.status_code == 200:
-            result = response.json()
-            return True, result.get("success", 0), result.get("fail", 0), result
-        else:
-            return False, 0, 0, {"error": f"HTTP {response.status_code}"}
-    except Exception as e:
-        print(f"❌ خطا در ارتباط با لیارا: {e}")
-        return False, 0, 0, {"error": str(e)}
+# ذخیره موقت عملیات کاربران
+user_data = {}
 
 # ==================== صفحات وب ====================
 
 @app.route('/webhook', methods=['POST'])
 def webhook():
-    """دریافت آپدیت از تلگرام - با دیباگ کامل"""
-    print("="*60)
-    print(f"📩 Webhook called at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    print(f"📌 Remote IP: {request.remote_addr}")
-    print(f"📌 Headers: {dict(request.headers)}")
-    
     try:
         json_str = request.get_data().decode('UTF-8')
-        print(f"📨 Data received: {json_str[:500]}...")
-        
-        if not json_str:
-            print("⚠️ Empty data received")
-            return 'Empty', 400
-        
         update = telebot.types.Update.de_json(json_str)
-        print(f"✅ Update ID: {update.update_id}")
-        
         bot.process_new_updates([update])
-        print("✅ Update processed successfully")
-        
         return 'OK', 200
     except Exception as e:
-        print(f"❌ Error in webhook: {e}")
-        import traceback
-        traceback.print_exc()
         return 'Error', 500
 
 @app.route('/')
 def home():
-    stats = db.get_global_stats()
-    return f"""
+    return """
     <html>
         <head>
-            <title>ربات SMS Bomber VIP</title>
+            <title>ربات ماشین حساب شیشه‌ای</title>
             <style>
-                body {{ 
-                    font-family: 'Vazir', Arial, sans-serif; 
-                    text-align: center; 
-                    padding: 50px; 
-                    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                    color: white; 
+                * {
                     margin: 0;
+                    padding: 0;
+                    box-sizing: border-box;
+                }
+                
+                body {
+                    font-family: 'Vazir', 'Segoe UI', Tahoma, sans-serif;
                     min-height: 100vh;
-                }}
-                .container {{
+                    background: linear-gradient(145deg, #1a1c2c 0%, #2a2f4f 100%);
+                    display: flex;
+                    justify-content: center;
+                    align-items: center;
+                    padding: 20px;
+                }
+                
+                .glass-panel {
                     background: rgba(255, 255, 255, 0.1);
-                    backdrop-filter: blur(10px);
+                    backdrop-filter: blur(15px);
+                    -webkit-backdrop-filter: blur(15px);
+                    border-radius: 40px;
                     padding: 40px;
+                    box-shadow: 
+                        0 25px 50px -12px rgba(0, 0, 0, 0.5),
+                        inset 0 -2px 2px rgba(255, 255, 255, 0.1),
+                        inset 0 2px 2px rgba(255, 255, 255, 0.2);
+                    border: 1px solid rgba(255, 255, 255, 0.2);
+                    width: 100%;
+                    max-width: 600px;
+                }
+                
+                h1 {
+                    color: white;
+                    font-size: 2.5em;
+                    margin-bottom: 10px;
+                    text-align: center;
+                    text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
+                    font-weight: 500;
+                }
+                
+                .subtitle {
+                    color: rgba(255, 255, 255, 0.7);
+                    text-align: center;
+                    margin-bottom: 40px;
+                    font-size: 1.1em;
+                }
+                
+                .calculator-preview {
+                    background: rgba(0, 0, 0, 0.3);
+                    border-radius: 30px;
+                    padding: 30px;
+                    margin: 30px 0;
+                    border: 1px solid rgba(255, 255, 255, 0.1);
+                }
+                
+                .display {
+                    background: rgba(0, 0, 0, 0.5);
                     border-radius: 20px;
-                    max-width: 800px;
-                    margin: 0 auto;
-                }}
-                h1 {{ color: #ffd700; }}
-                .developer {{ 
-                    background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
                     padding: 20px;
-                    border-radius: 10px;
-                    margin: 20px 0;
-                }}
-                .stats {{ display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; margin: 30px 0; }}
-                .stat-card {{
-                    background: rgba(255,255,255,0.2);
+                    margin-bottom: 20px;
+                    text-align: right;
+                    color: white;
+                    font-size: 2em;
+                    font-family: 'Courier New', monospace;
+                    border: 1px solid rgba(255, 255, 255, 0.2);
+                    box-shadow: inset 0 2px 5px rgba(0, 0, 0, 0.3);
+                }
+                
+                .buttons-grid {
+                    display: grid;
+                    grid-template-columns: repeat(4, 1fr);
+                    gap: 10px;
+                }
+                
+                .calc-btn {
+                    background: rgba(255, 255, 255, 0.15);
+                    border: 1px solid rgba(255, 255, 255, 0.2);
+                    border-radius: 20px;
                     padding: 20px;
-                    border-radius: 10px;
-                }}
-                .vip {{ color: #ffd700; }}
-                .normal {{ color: #4CAF50; }}
-                .contact {{
-                    background: rgba(0,0,0,0.3);
-                    padding: 20px;
-                    border-radius: 10px;
-                    margin-top: 30px;
-                }}
-                a {{ color: #ffd700; text-decoration: none; }}
-                a:hover {{ text-decoration: underline; }}
+                    color: white;
+                    font-size: 1.3em;
+                    font-weight: bold;
+                    cursor: pointer;
+                    transition: all 0.2s;
+                    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+                }
+                
+                .calc-btn:hover {
+                    background: rgba(255, 255, 255, 0.3);
+                    transform: translateY(-2px);
+                }
+                
+                .operator-btn {
+                    background: linear-gradient(145deg, #ff6b6b, #ff4757);
+                    border: none;
+                    color: white;
+                }
+                
+                .equal-btn {
+                    background: linear-gradient(145deg, #51cf66, #37b24d);
+                    border: none;
+                    grid-column: span 2;
+                }
+                
+                .stats {
+                    display: grid;
+                    grid-template-columns: repeat(3, 1fr);
+                    gap: 20px;
+                    margin: 40px 0;
+                }
+                
+                .stat-card {
+                    background: rgba(255, 255, 255, 0.1);
+                    border-radius: 25px;
+                    padding: 25px;
+                    text-align: center;
+                    border: 1px solid rgba(255, 255, 255, 0.2);
+                    backdrop-filter: blur(10px);
+                }
+                
+                .stat-number {
+                    font-size: 2.5em;
+                    color: #ffd700;
+                    font-weight: bold;
+                }
+                
+                .stat-label {
+                    color: rgba(255, 255, 255, 0.7);
+                    margin-top: 10px;
+                }
+                
+                .developer-info {
+                    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                    border-radius: 25px;
+                    padding: 25px;
+                    margin-top: 40px;
+                    text-align: center;
+                }
+                
+                .developer-info h3 {
+                    color: white;
+                    font-size: 1.5em;
+                    margin-bottom: 10px;
+                }
+                
+                .developer-info p {
+                    color: rgba(255, 255, 255, 0.9);
+                }
+                
+                .developer-info a {
+                    color: #ffd700;
+                    text-decoration: none;
+                }
+                
+                .developer-info a:hover {
+                    text-decoration: underline;
+                }
+                
+                .features {
+                    display: flex;
+                    flex-wrap: wrap;
+                    gap: 15px;
+                    justify-content: center;
+                    margin: 30px 0;
+                }
+                
+                .feature-tag {
+                    background: rgba(255, 255, 255, 0.15);
+                    border-radius: 50px;
+                    padding: 12px 25px;
+                    color: white;
+                    border: 1px solid rgba(255, 255, 255, 0.3);
+                    font-size: 1em;
+                }
             </style>
         </head>
         <body>
-            <div class="container">
-                <h1>🤖 ربات SMS Bomber VIP</h1>
+            <div class="glass-panel">
+                <h1>🧮 ماشین حساب شیشه‌ای</h1>
+                <div class="subtitle">✨ محاسبات سریع و دقیق با طراحی مدرن</div>
                 
-                <div class="developer">
-                    <h2>👨‍💻 سازنده: @{DEVELOPER_USERNAME}</h2>
-                    <p>📢 کانال پشتیبانی: {SUPPORT_CHANNEL}</p>
-                    <p>🤖 بات ارتباطی: <a href="https://t.me/{DEVELOPER_USERNAME}">@{DEVELOPER_USERNAME}</a></p>
+                <div class="calculator-preview">
+                    <div class="display">0</div>
+                    <div class="buttons-grid">
+                        <button class="calc-btn">7</button>
+                        <button class="calc-btn">8</button>
+                        <button class="calc-btn">9</button>
+                        <button class="calc-btn operator-btn">÷</button>
+                        <button class="calc-btn">4</button>
+                        <button class="calc-btn">5</button>
+                        <button class="calc-btn">6</button>
+                        <button class="calc-btn operator-btn">×</button>
+                        <button class="calc-btn">1</button>
+                        <button class="calc-btn">2</button>
+                        <button class="calc-btn">3</button>
+                        <button class="calc-btn operator-btn">-</button>
+                        <button class="calc-btn">0</button>
+                        <button class="calc-btn">.</button>
+                        <button class="calc-btn operator-btn">+</button>
+                        <button class="calc-btn">C</button>
+                    </div>
                 </div>
                 
                 <div class="stats">
                     <div class="stat-card">
-                        <h3>👥 کل کاربران</h3>
-                        <h2>{stats['total_users']}</h2>
+                        <div class="stat-number">∞</div>
+                        <div class="stat-label">محاسبات نامحدود</div>
                     </div>
                     <div class="stat-card">
-                        <h3 class="vip">💎 VIP</h3>
-                        <h2 class="vip">{stats['vip_users']}</h2>
+                        <div class="stat-number">⚡</div>
+                        <div class="stat-label">پاسخ فوری</div>
                     </div>
                     <div class="stat-card">
-                        <h3>📊 کل درخواست</h3>
-                        <h2>{stats['total_requests']}</h2>
+                        <div class="stat-number">🔮</div>
+                        <div class="stat-label">طراحی شیشه‌ای</div>
                     </div>
                 </div>
                 
-                <p>🔰 کاربران عادی: {NORMAL_LIMIT} بار در روز</p>
-                <p class="vip">💎 کاربران VIP: {VIP_LIMIT} بار در روز</p>
+                <div class="features">
+                    <span class="feature-tag">➕ جمع</span>
+                    <span class="feature-tag">➖ تفریق</span>
+                    <span class="feature-tag">✖️ ضرب</span>
+                    <span class="feature-tag">➗ تقسیم</span>
+                    <span class="feature-tag">📊 درصد</span>
+                    <span class="feature-tag">√ رادیکال</span>
+                    <span class="feature-tag">^ توان</span>
+                    <span class="feature-tag">() پرانتز</span>
+                </div>
                 
-                <div class="contact">
-                    <h3>📞 ارتباط با سازنده</h3>
-                    <p>برای ارتباط مستقیم با سازنده، از ربات استفاده کنید:</p>
-                    <p>👉 دکمه 📞 پشتیبانی در منوی ربات</p>
-                    <p>🤖 یا مستقیم به <a href="https://t.me/{DEVELOPER_USERNAME}">@{DEVELOPER_USERNAME}</a> پیام دهید</p>
+                <div class="developer-info">
+                    <h3>👨‍💻 سازنده: @top_topy_messenger_bot</h3>
+                    <p>📢 کانال پشتیبانی: @death_star_sms_bomber</p>
+                    <p style="margin-top: 15px;">🤖 برای استفاده از ربات، به تلگرام بروید و دستور /start را بزنید</p>
                 </div>
             </div>
         </body>
@@ -505,11 +305,9 @@ def home():
 def health():
     return {
         "status": "healthy",
-        "service": SERVICE_NAME,
+        "service": "glass-calculator-bot",
         "developer": f"@{DEVELOPER_USERNAME}",
-        "developer_bot": f"https://t.me/{DEVELOPER_USERNAME}",
         "support": SUPPORT_CHANNEL,
-        "liara_api": LIARA_API_URL,
         "time": datetime.now().isoformat()
     }
 
@@ -543,6 +341,104 @@ def set_webhook():
         print(f"❌ خطا: {e}")
     return False
 
+# ==================== توابع ماشین حساب ====================
+
+def calculate(expression):
+    """محاسبه عبارت ریاضی"""
+    try:
+        # پاکسازی عبارت
+        expression = expression.replace(' ', '')
+        expression = expression.replace('×', '*')
+        expression = expression.replace('÷', '/')
+        expression = expression.replace('^', '**')
+        expression = expression.replace('√', 'sqrt')
+        expression = expression.replace('%', '/100')
+        
+        # محاسبه با eval (با احتیاط)
+        result = eval(expression, {"__builtins__": {}}, {"sqrt": math.sqrt, "sin": math.sin, "cos": math.cos, "tan": math.tan, "log": math.log, "pi": math.pi, "e": math.e})
+        
+        # گرد کردن نتیجه
+        if isinstance(result, float):
+            if result.is_integer():
+                result = int(result)
+            else:
+                result = round(result, 10)
+        
+        return True, result
+    except ZeroDivisionError:
+        return False, "❌ تقسیم بر صفر امکان‌پذیر نیست!"
+    except Exception as e:
+        return False, f"❌ خطا در محاسبه: {str(e)[:50]}"
+
+# ==================== کیبورد ماشین حساب ====================
+
+def get_calculator_keyboard():
+    """ایجاد کیبورد شیشه‌ای ماشین حساب"""
+    markup = ReplyKeyboardMarkup(resize_keyboard=True, row_width=4)
+    
+    # ردیف اول
+    markup.add(
+        KeyboardButton("C"), KeyboardButton("("), KeyboardButton(")"), KeyboardButton("÷")
+    )
+    
+    # ردیف دوم
+    markup.add(
+        KeyboardButton("7"), KeyboardButton("8"), KeyboardButton("9"), KeyboardButton("×")
+    )
+    
+    # ردیف سوم
+    markup.add(
+        KeyboardButton("4"), KeyboardButton("5"), KeyboardButton("6"), KeyboardButton("-")
+    )
+    
+    # ردیف چهارم
+    markup.add(
+        KeyboardButton("1"), KeyboardButton("2"), KeyboardButton("3"), KeyboardButton("+")
+    )
+    
+    # ردیف پنجم
+    markup.add(
+        KeyboardButton("0"), KeyboardButton("."), KeyboardButton("%"), KeyboardButton("=")
+    )
+    
+    # ردیف ششم (عملیات پیشرفته)
+    markup.add(
+        KeyboardButton("√"), KeyboardButton("^"), KeyboardButton("π"), KeyboardButton("e")
+    )
+    
+    # ردیف هفتم
+    markup.add(
+        KeyboardButton("📊 راهنما"), KeyboardButton("🗑 پاک کردن"), KeyboardButton("📞 پشتیبانی")
+    )
+    
+    return markup
+
+def get_scientific_keyboard():
+    """کیبورد علمی پیشرفته"""
+    markup = ReplyKeyboardMarkup(resize_keyboard=True, row_width=4)
+    
+    markup.add(
+        KeyboardButton("sin"), KeyboardButton("cos"), KeyboardButton("tan"), KeyboardButton("log")
+    )
+    
+    markup.add(
+        KeyboardButton("asin"), KeyboardButton("acos"), KeyboardButton("atan"), KeyboardButton("ln")
+    )
+    
+    markup.add(
+        KeyboardButton("!"), KeyboardButton("√"), KeyboardButton("^2"), KeyboardButton("^3")
+    )
+    
+    markup.add(
+        KeyboardButton("1/x"), KeyboardButton("|x|"), KeyboardButton("exp"), KeyboardButton("mod")
+    )
+    
+    markup.add(
+        KeyboardButton("🔙 بازگشت"), KeyboardButton("🧮 ماشین حساب")
+    )
+    
+    return markup
+
 # ==================== هندلرهای بات ====================
 
 @bot.message_handler(commands=['start'])
@@ -550,555 +446,519 @@ def start(message):
     user_id = message.from_user.id
     username = message.from_user.username or ""
     first_name = message.from_user.first_name or ""
-    last_name = message.from_user.last_name or ""
     
-    db.register_user(user_id, username, first_name, last_name)
+    # ذخیره وضعیت کاربر
+    user_data[user_id] = {
+        "expression": "",
+        "last_result": 0,
+        "mode": "standard"
+    }
     
-    markup = ReplyKeyboardMarkup(resize_keyboard=True)
-    markup.add(KeyboardButton("🚀 شروع بمباران"))
-    markup.add(KeyboardButton("📊 راهنما"), KeyboardButton("📊 آمار من"))
-    markup.add(KeyboardButton("📞 پشتیبانی"), KeyboardButton("💎 وضعیت VIP"))
-    
-    if db.is_vip(user_id):
-        markup.add(KeyboardButton("💎 پنل VIP"))
-    
-    if is_admin(user_id):
-        markup.add(KeyboardButton("👑 پنل مدیریت"))
+    markup = get_calculator_keyboard()
     
     welcome = (
-        "🤖 **به ربات SMS Bomber خوش آمدید!**\n\n"
+        "🧮 **به ماشین حساب شیشه‌ای خوش آمدید!**\n\n"
         f"👨‍💻 **سازنده:** @{DEVELOPER_USERNAME}\n"
-        f"🤖 **بات ارتباطی:** @{DEVELOPER_USERNAME}\n"
         f"📢 **کانال پشتیبانی:** {SUPPORT_CHANNEL}\n\n"
-        f"📌 **محدودیت روزانه:**\n"
-        f"• کاربران عادی: {NORMAL_LIMIT} بار\n"
-        f"• کاربران VIP: {VIP_LIMIT} بار 💎\n\n"
-        f"📢 **کانال اجباری:** {REQUIRED_CHANNEL}\n\n"
-        "🚀 برای شروع از دکمه زیر استفاده کنید:"
+        "✨ **قابلیت‌ها:**\n"
+        "• محاسبات پایه (جمع، تفریق، ضرب، تقسیم)\n"
+        "• عملیات علمی (سینوس، کسینوس، لگاریتم)\n"
+        "• توان و رادیکال\n"
+        "• درصد و پرانتز\n"
+        "• طراحی شیشه‌ای و مدرن\n\n"
+        "🔰 **برای شروع، اعداد و عملیات را وارد کنید:**"
     )
     
     bot.send_message(message.chat.id, welcome, parse_mode="Markdown", reply_markup=markup)
 
-@bot.callback_query_handler(func=lambda call: call.data == "check_join")
-def check_join_callback(call):
-    if check_membership(call.from_user.id):
-        bot.answer_callback_query(call.id, "✅ عضویت تایید شد!")
-        bot.delete_message(call.message.chat.id, call.message.message_id)
-        bot.send_message(call.message.chat.id, "✅ حالا می‌توانید از ربات استفاده کنید.")
+@bot.message_handler(commands=['scientific'])
+def scientific_mode(message):
+    user_id = message.from_user.id
+    if user_id not in user_data:
+        user_data[user_id] = {"expression": "", "last_result": 0, "mode": "scientific"}
     else:
-        bot.answer_callback_query(call.id, "❌ شما هنوز عضو نشده‌اید!", show_alert=True)
+        user_data[user_id]["mode"] = "scientific"
+    
+    bot.send_message(
+        message.chat.id,
+        "🔬 **حالت علمی فعال شد**\n\nاز دکمه‌های زیر برای محاسبات پیشرفته استفاده کنید:",
+        parse_mode="Markdown",
+        reply_markup=get_scientific_keyboard()
+    )
 
-# ==================== بخش پشتیبانی ====================
+@bot.message_handler(func=lambda m: m.text == "🧮 ماشین حساب")
+def back_to_calculator(message):
+    user_id = message.from_user.id
+    if user_id in user_data:
+        user_data[user_id]["mode"] = "standard"
+        user_data[user_id]["expression"] = ""
+    
+    bot.send_message(
+        message.chat.id,
+        "🧮 **به ماشین حساب بازگشتید**",
+        parse_mode="Markdown",
+        reply_markup=get_calculator_keyboard()
+    )
+
+@bot.message_handler(func=lambda m: m.text == "🔙 بازگشت")
+def back_from_scientific(message):
+    user_id = message.from_user.id
+    if user_id in user_data:
+        user_data[user_id]["mode"] = "standard"
+        user_data[user_id]["expression"] = ""
+    
+    bot.send_message(
+        message.chat.id,
+        "🧮 **به ماشین حساب بازگشتید**",
+        parse_mode="Markdown",
+        reply_markup=get_calculator_keyboard()
+    )
+
+@bot.message_handler(func=lambda m: m.text == "📊 راهنما")
+def help_handler(message):
+    help_text = (
+        "📚 **راهنمای استفاده از ماشین حساب**\n\n"
+        "**🔹 عملیات پایه:**\n"
+        "• جمع: + (یا دکمه +)\n"
+        "• تفریق: - (یا دکمه -)\n"
+        "• ضرب: × (یا دکمه ×)\n"
+        "• تقسیم: ÷ (یا دکمه ÷)\n\n"
+        "**🔸 عملیات پیشرفته:**\n"
+        "• توان: ^ (مثال: 2^3 = 8)\n"
+        "• رادیکال: √ (مثال: √9 = 3)\n"
+        "• درصد: % (مثال: 20% از 200 = 40)\n"
+        "• پرانتز: ( ) برای اولویت‌بندی\n\n"
+        "**🔹 توابع علمی:**\n"
+        "• sin, cos, tan, log, ln\n"
+        "• asin, acos, atan (معکوس)\n"
+        "• ! فاکتوریل\n"
+        "• π عدد پی\n"
+        "• e عدد نپر\n\n"
+        "**🔸 نکات:**\n"
+        "• برای محاسبه، بعد از وارد کردن عبارت، روی = کلیک کنید\n"
+        "• دکمه C برای پاک کردن کل عبارت\n"
+        "• دکمه 🗑 پاک کردن برای حذف آخرین کاراکتر\n"
+        "• نتیجه آخرین محاسبه در حافظه ذخیره می‌شود\n\n"
+        f"👨‍💻 **سازنده:** @{DEVELOPER_USERNAME}"
+    )
+    bot.send_message(message.chat.id, help_text, parse_mode="Markdown")
+
+@bot.message_handler(func=lambda m: m.text == "🗑 پاک کردن")
+def clear_handler(message):
+    user_id = message.from_user.id
+    if user_id in user_data:
+        expr = user_data[user_id].get("expression", "")
+        if expr:
+            user_data[user_id]["expression"] = expr[:-1]
+            current = user_data[user_id]["expression"] or "0"
+            bot.send_message(message.chat.id, f"📝 **عبارت فعلی:** `{current}`", parse_mode="Markdown")
+        else:
+            bot.send_message(message.chat.id, "⚠️ هیچ عبارتی وجود ندارد!")
+    else:
+        bot.send_message(message.chat.id, "⚠️ ابتدا /start را بزنید!")
 
 @bot.message_handler(func=lambda m: m.text == "📞 پشتیبانی")
-def support_menu(message):
-    markup = InlineKeyboardMarkup(row_width=2)
+def support_handler(message):
+    markup = InlineKeyboardMarkup()
     markup.add(
-        InlineKeyboardButton("📨 ارسال پیام به سازنده", callback_data="support_message"),
-        InlineKeyboardButton("📋 تیکت‌های من", callback_data="my_tickets"),
-        InlineKeyboardButton("👨‍💻 تماس مستقیم", url=f"https://t.me/{DEVELOPER_USERNAME}"),
+        InlineKeyboardButton("👨‍💻 تماس با سازنده", url=f"https://t.me/{DEVELOPER_USERNAME}"),
         InlineKeyboardButton("📢 کانال", url=CHANNEL_LINK)
     )
     
     text = (
-        "📞 **مرکز پشتیبانی**\n\n"
+        "📞 **پشتیبانی**\n\n"
         f"👨‍💻 **سازنده:** @{DEVELOPER_USERNAME}\n"
-        f"🤖 **بات ارتباطی:** @{DEVELOPER_USERNAME}\n"
         f"📢 **کانال:** {SUPPORT_CHANNEL}\n\n"
-        "از طریق گزینه‌های زیر می‌توانید با ما در ارتباط باشید:"
+        "برای ارتباط مستقیم با سازنده، از دکمه زیر استفاده کنید:"
     )
     
     bot.send_message(message.chat.id, text, parse_mode="Markdown", reply_markup=markup)
 
-@bot.callback_query_handler(func=lambda call: call.data == "support_message")
-def support_message_callback(call):
-    msg = bot.send_message(call.message.chat.id, 
-        "📨 **ارسال پیام به سازنده**\n\n"
-        "لطفاً پیام خود را ارسال کنید. سازنده در اولین فرصت پاسخ خواهد داد.\n"
-        "(میتوانید سوال، پیشنهاد یا مشکل خود را بنویسید)")
-    bot.register_next_step_handler(msg, process_support_message)
-
-def process_support_message(message):
+@bot.message_handler(func=lambda m: m.text in ["sin", "cos", "tan", "log", "ln", "asin", "acos", "atan"])
+def trig_handler(message):
     user_id = message.from_user.id
-    username = message.from_user.username or "بدون یوزرنیم"
+    if user_id not in user_data:
+        user_data[user_id] = {"expression": "", "last_result": 0, "mode": "scientific"}
+    
+    func = message.text
+    last_result = user_data[user_id].get("last_result", 0)
+    
+    msg = bot.send_message(
+        message.chat.id,
+        f"🔢 عدد را برای تابع {func} وارد کنید (پیش‌فرض: {last_result}):",
+        parse_mode="Markdown"
+    )
+    
+    bot.register_next_step_handler(msg, process_trig, user_id, func, last_result)
+
+def process_trig(message, user_id, func, default_value):
+    try:
+        text = message.text.strip()
+        if text == "":
+            value = default_value
+        else:
+            value = float(text.replace(',', '.'))
+        
+        result = None
+        if func == "sin":
+            result = math.sin(math.radians(value))
+        elif func == "cos":
+            result = math.cos(math.radians(value))
+        elif func == "tan":
+            result = math.tan(math.radians(value))
+        elif func == "log":
+            result = math.log10(value)
+        elif func == "ln":
+            result = math.log(value)
+        elif func == "asin":
+            result = math.degrees(math.asin(value))
+        elif func == "acos":
+            result = math.degrees(math.acos(value))
+        elif func == "atan":
+            result = math.degrees(math.atan(value))
+        
+        if result is not None:
+            # گرد کردن نتیجه
+            if abs(result - round(result, 10)) < 1e-10:
+                result = round(result, 10)
+            
+            user_data[user_id]["last_result"] = result
+            bot.send_message(
+                message.chat.id,
+                f"✅ **نتیجه:** `{result}`",
+                parse_mode="Markdown"
+            )
+        else:
+            bot.send_message(message.chat.id, "❌ خطا در محاسبه!")
+            
+    except ValueError:
+        bot.send_message(message.chat.id, "❌ لطفاً یک عدد معتبر وارد کنید!")
+    except Exception as e:
+        bot.send_message(message.chat.id, f"❌ خطا: {str(e)[:50]}")
+
+@bot.message_handler(func=lambda m: m.text == "!")
+def factorial_handler(message):
+    user_id = message.from_user.id
+    if user_id not in user_data:
+        user_data[user_id] = {"expression": "", "last_result": 0, "mode": "scientific"}
+    
+    last_result = user_data[user_id].get("last_result", 0)
+    
+    msg = bot.send_message(
+        message.chat.id,
+        f"🔢 عدد را برای فاکتوریل وارد کنید (پیش‌فرض: {last_result}):",
+        parse_mode="Markdown"
+    )
+    
+    bot.register_next_step_handler(msg, process_factorial, user_id, last_result)
+
+def process_factorial(message, user_id, default_value):
+    try:
+        text = message.text.strip()
+        if text == "":
+            value = default_value
+        else:
+            value = float(text.replace(',', '.'))
+        
+        if value.is_integer() and value >= 0:
+            result = math.factorial(int(value))
+            user_data[user_id]["last_result"] = result
+            bot.send_message(
+                message.chat.id,
+                f"✅ **نتیجه:** `{result}`",
+                parse_mode="Markdown"
+            )
+        else:
+            bot.send_message(message.chat.id, "❌ فاکتوریل فقط برای اعداد صحیح مثبت تعریف می‌شود!")
+            
+    except ValueError:
+        bot.send_message(message.chat.id, "❌ لطفاً یک عدد معتبر وارد کنید!")
+    except Exception as e:
+        bot.send_message(message.chat.id, f"❌ خطا: {str(e)[:50]}")
+
+@bot.message_handler(func=lambda m: m.text == "1/x")
+def inverse_handler(message):
+    user_id = message.from_user.id
+    if user_id not in user_data:
+        user_data[user_id] = {"expression": "", "last_result": 0, "mode": "scientific"}
+    
+    last_result = user_data[user_id].get("last_result", 0)
+    
+    msg = bot.send_message(
+        message.chat.id,
+        f"🔢 عدد را برای معکوس وارد کنید (پیش‌فرض: {last_result}):",
+        parse_mode="Markdown"
+    )
+    
+    bot.register_next_step_handler(msg, process_inverse, user_id, last_result)
+
+def process_inverse(message, user_id, default_value):
+    try:
+        text = message.text.strip()
+        if text == "":
+            value = default_value
+        else:
+            value = float(text.replace(',', '.'))
+        
+        if value != 0:
+            result = 1 / value
+            user_data[user_id]["last_result"] = result
+            bot.send_message(
+                message.chat.id,
+                f"✅ **نتیجه:** `{result}`",
+                parse_mode="Markdown"
+            )
+        else:
+            bot.send_message(message.chat.id, "❌ تقسیم بر صفر امکان‌پذیر نیست!")
+            
+    except ValueError:
+        bot.send_message(message.chat.id, "❌ لطفاً یک عدد معتبر وارد کنید!")
+    except Exception as e:
+        bot.send_message(message.chat.id, f"❌ خطا: {str(e)[:50]}")
+
+@bot.message_handler(func=lambda m: m.text == "|x|")
+def abs_handler(message):
+    user_id = message.from_user.id
+    if user_id not in user_data:
+        user_data[user_id] = {"expression": "", "last_result": 0, "mode": "scientific"}
+    
+    last_result = user_data[user_id].get("last_result", 0)
+    
+    msg = bot.send_message(
+        message.chat.id,
+        f"🔢 عدد را برای قدر مطلق وارد کنید (پیش‌فرض: {last_result}):",
+        parse_mode="Markdown"
+    )
+    
+    bot.register_next_step_handler(msg, process_abs, user_id, last_result)
+
+def process_abs(message, user_id, default_value):
+    try:
+        text = message.text.strip()
+        if text == "":
+            value = default_value
+        else:
+            value = float(text.replace(',', '.'))
+        
+        result = abs(value)
+        user_data[user_id]["last_result"] = result
+        bot.send_message(
+            message.chat.id,
+            f"✅ **نتیجه:** `{result}`",
+            parse_mode="Markdown"
+        )
+            
+    except ValueError:
+        bot.send_message(message.chat.id, "❌ لطفاً یک عدد معتبر وارد کنید!")
+    except Exception as e:
+        bot.send_message(message.chat.id, f"❌ خطا: {str(e)[:50]}")
+
+@bot.message_handler(func=lambda m: m.text == "exp")
+def exp_handler(message):
+    user_id = message.from_user.id
+    if user_id not in user_data:
+        user_data[user_id] = {"expression": "", "last_result": 0, "mode": "scientific"}
+    
+    last_result = user_data[user_id].get("last_result", 0)
+    
+    msg = bot.send_message(
+        message.chat.id,
+        f"🔢 عدد را برای e^x وارد کنید (پیش‌فرض: {last_result}):",
+        parse_mode="Markdown"
+    )
+    
+    bot.register_next_step_handler(msg, process_exp, user_id, last_result)
+
+def process_exp(message, user_id, default_value):
+    try:
+        text = message.text.strip()
+        if text == "":
+            value = default_value
+        else:
+            value = float(text.replace(',', '.'))
+        
+        result = math.exp(value)
+        user_data[user_id]["last_result"] = result
+        bot.send_message(
+            message.chat.id,
+            f"✅ **نتیجه:** `{result}`",
+            parse_mode="Markdown"
+        )
+            
+    except ValueError:
+        bot.send_message(message.chat.id, "❌ لطفاً یک عدد معتبر وارد کنید!")
+    except Exception as e:
+        bot.send_message(message.chat.id, f"❌ خطا: {str(e)[:50]}")
+
+@bot.message_handler(func=lambda m: m.text == "mod")
+def mod_handler(message):
+    user_id = message.from_user.id
+    if user_id not in user_data:
+        user_data[user_id] = {"expression": "", "last_result": 0, "mode": "scientific"}
+    
+    msg = bot.send_message(
+        message.chat.id,
+        "🔢 دو عدد را به فرم `a mod b` وارد کنید (مثال: 10 mod 3):",
+        parse_mode="Markdown"
+    )
+    
+    bot.register_next_step_handler(msg, process_mod, user_id)
+
+def process_mod(message, user_id):
+    try:
+        text = message.text.strip()
+        if 'mod' in text:
+            parts = text.split('mod')
+            a = float(parts[0].strip())
+            b = float(parts[1].strip())
+            
+            if b == 0:
+                bot.send_message(message.chat.id, "❌ تقسیم بر صفر امکان‌پذیر نیست!")
+                return
+            
+            result = a % b
+            user_data[user_id]["last_result"] = result
+            bot.send_message(
+                message.chat.id,
+                f"✅ **نتیجه:** `{result}`",
+                parse_mode="Markdown"
+            )
+        else:
+            bot.send_message(message.chat.id, "❌ فرمت صحیح: a mod b")
+            
+    except ValueError:
+        bot.send_message(message.chat.id, "❌ لطفاً اعداد معتبر وارد کنید!")
+    except Exception as e:
+        bot.send_message(message.chat.id, f"❌ خطا: {str(e)[:50]}")
+
+@bot.message_handler(func=lambda m: m.text in ["π", "e"])
+def constant_handler(message):
+    user_id = message.from_user.id
+    if user_id not in user_data:
+        user_data[user_id] = {"expression": "", "last_result": 0, "mode": "standard"}
+    
+    if message.text == "π":
+        result = math.pi
+    else:
+        result = math.e
+    
+    user_data[user_id]["last_result"] = result
+    bot.send_message(
+        message.chat.id,
+        f"✅ **مقدار {message.text}:** `{result}`",
+        parse_mode="Markdown"
+    )
+
+@bot.message_handler(func=lambda m: m.text in ["^2", "^3", "√"])
+def power_root_handler(message):
+    user_id = message.from_user.id
+    if user_id not in user_data:
+        user_data[user_id] = {"expression": "", "last_result": 0, "mode": "scientific"}
+    
+    if user_id in user_data:
+        expr = user_data[user_id].get("expression", "")
+        last_result = user_data[user_id].get("last_result", 0)
+        
+        if message.text == "^2":
+            new_expr = expr + f"^{last_result}^2"
+            user_data[user_id]["expression"] = new_expr
+        elif message.text == "^3":
+            new_expr = expr + f"^{last_result}^3"
+            user_data[user_id]["expression"] = new_expr
+        elif message.text == "√":
+            new_expr = expr + f"sqrt({last_result})"
+            user_data[user_id]["expression"] = new_expr
+        
+        current = user_data[user_id]["expression"] or "0"
+        bot.send_message(
+            message.chat.id,
+            f"📝 **عبارت فعلی:** `{current}`\n🔢 برای محاسبه = را بزنید",
+            parse_mode="Markdown"
+        )
+    else:
+        user_data[user_id] = {"expression": "", "last_result": 0, "mode": "scientific"}
+        bot.send_message(message.chat.id, "⚠️ ابتدا یک عدد وارد کنید!")
+
+@bot.message_handler(func=lambda m: m.text not in ["C", "=", "🗑 پاک کردن", "📊 راهنما", "📞 پشتیبانی", "🧮 ماشین حساب", "🔙 بازگشت", "sin", "cos", "tan", "log", "ln", "asin", "acos", "atan", "!", "1/x", "|x|", "exp", "mod", "π", "e", "^2", "^3", "√"])
+def calculator_handler(message):
+    user_id = message.from_user.id
     text = message.text
     
-    # ثبت تیکت در دیتابیس
-    ticket_id = db.add_ticket(user_id, username, "پیام کاربر", text)
+    if user_id not in user_data:
+        user_data[user_id] = {"expression": "", "last_result": 0, "mode": "standard"}
     
-    # ارسال به ادمین‌ها
-    for admin_id in ADMIN_IDS:
-        try:
-            admin_msg = (
-                f"📨 **تیکت جدید از کاربر**\n\n"
-                f"🆔 آیدی: `{user_id}`\n"
-                f"👤 یوزرنیم: @{username}\n"
-                f"📝 پیام: {text}\n"
-                f"🎫 شماره تیکت: {ticket_id}\n\n"
-                f"برای پاسخ از دستور /reply {ticket_id} استفاده کنید."
-            )
-            bot.send_message(admin_id, admin_msg, parse_mode="Markdown")
-        except:
-            pass
-    
-    bot.send_message(message.chat.id, 
-        "✅ **پیام شما با موفقیت ارسال شد!**\n"
-        "سازنده در اولین فرصت پاسخ خواهد داد.", 
-        parse_mode="Markdown")
-
-@bot.callback_query_handler(func=lambda call: call.data == "my_tickets")
-def my_tickets_callback(call):
-    tickets = db.get_user_tickets(call.from_user.id)
-    
-    if not tickets:
-        bot.send_message(call.message.chat.id, "📭 شما هیچ تیکتی ندارید.")
+    if text == "C":
+        user_data[user_id]["expression"] = ""
+        bot.send_message(message.chat.id, "✅ **پاک شد**", parse_mode="Markdown")
         return
     
-    text = "📋 **لیست تیکت‌های شما:**\n\n"
-    for ticket in tickets:
-        ticket_id, t_type, msg, status, date, time, response = ticket
-        status_emoji = "🟢" if status == "باز" else "🔴" if status == "بسته شده" else "🟡"
-        text += f"{status_emoji} **تیکت #{ticket_id}**\n"
-        text += f"📅 {date} {time}\n"
-        text += f"📝 {msg[:50]}...\n"
-        if response:
-            text += f"💬 پاسخ: {response[:50]}...\n"
-        text += "─────────────\n"
+    # اضافه کردن کاراکتر به عبارت
+    current_expr = user_data[user_id].get("expression", "")
     
-    bot.send_message(call.message.chat.id, text, parse_mode="Markdown")
-
-# دستور پاسخ به تیکت (فقط برای ادمین)
-@bot.message_handler(commands=['reply'])
-def reply_to_ticket(message):
-    if not is_admin(message.from_user.id):
-        bot.reply_to(message, "⛔ دسترسی ندارید!")
-        return
-    
-    try:
-        parts = message.text.split()
-        ticket_id = int(parts[1])
-        response = ' '.join(parts[2:])
-        
-        if not response:
-            bot.reply_to(message, "❌ لطفاً متن پاسخ را هم وارد کنید.\nمثال: /reply 5 ممنون از پیامت")
-            return
-        
-        db.respond_to_ticket(ticket_id, response)
-        
-        # پیدا کردن کاربر و ارسال پاسخ
-        conn = sqlite3.connect(':memory:')
-        c = conn.cursor()
-        c.execute("SELECT user_id FROM support_tickets WHERE id = ?", (ticket_id,))
-        result = c.fetchone()
-        conn.close()
-        
-        if result:
-            user_id = result[0]
-            try:
-                bot.send_message(user_id,
-                    f"📨 **پاسخ به تیکت #{ticket_id}**\n\n"
-                    f"💬 {response}\n\n"
-                    f"با تشکر از شما - تیم پشتیبانی",
-                    parse_mode="Markdown")
-            except:
-                pass
-        
-        bot.reply_to(message, f"✅ پاسخ به تیکت {ticket_id} ارسال شد!")
-        
-    except (IndexError, ValueError):
-        bot.reply_to(message, "❌ فرمت صحیح: /reply [شماره تیکت] [متن پاسخ]")
-    except Exception as e:
-        bot.reply_to(message, f"❌ خطا: {e}")
-
-# ==================== ادامه هندلرها ====================
-
-@bot.message_handler(func=lambda m: m.text == "🚀 شروع بمباران")
-@membership_required
-def ask_phone(message):
-    user_id = message.from_user.id
-    
-    can_use, daily, user_type = check_daily_limit(user_id)
-    limit = VIP_LIMIT if user_type == "VIP" else NORMAL_LIMIT
-    
-    if not can_use:
-        bot.send_message(
-            message.chat.id, 
-            f"❌ شما امروز {daily} بار استفاده کرده‌اید.\n"
-            f"محدودیت {'VIP' if user_type == 'VIP' else 'عادی'} {limit} بار است.\n"
-            "فردا دوباره تلاش کنید."
-        )
-        return
-    
-    if user_processes.get(message.chat.id):
-        bot.send_message(message.chat.id, "❌ یک فرآیند در حال اجراست.")
-        return
-    
-    msg = bot.send_message(message.chat.id, "📱 شماره موبایل را وارد کنید (مثال: 09123456789):")
-    bot.register_next_step_handler(msg, process_phone)
-
-def process_phone(message):
-    chat_id = message.chat.id
-    user_id = message.from_user.id
-    phone = message.text.strip().replace(" ", "")
-    
-    if not phone.startswith('09') or len(phone) != 11 or not phone.isdigit():
-        bot.send_message(chat_id, "❌ شماره نامعتبر است.")
-        return
-    
-    if db.is_phone_protected(phone):
-        bot.send_message(chat_id, "❌ این شماره در لیست سیاه قرار دارد.")
-        return
-    
-    remaining = VIP_LIMIT - db.get_daily_count(user_id) if db.is_vip(user_id) else NORMAL_LIMIT - db.get_daily_count(user_id)
-    user_type = "VIP" if db.is_vip(user_id) else "عادی"
-    
-    bot.send_message(chat_id, f"✅ امروز {remaining} بار دیگر می‌توانید استفاده کنید. (نوع: {user_type})")
-    
-    user_processes[chat_id] = True
-    msg = bot.send_message(chat_id, f"🔰 شروع برای {mask_phone(phone)}...\n🔄 در حال اتصال به سرور لیارا...")
-    
-    thread = threading.Thread(target=bombing_process, args=(chat_id, user_id, phone, msg.message_id))
-    thread.daemon = True
-    thread.start()
-
-def bombing_process(chat_id, user_id, phone, msg_id):
-    try:
-        success, success_count, fail_count, details = send_request_to_liara(phone)
-        
-        if success:
-            db.increment_usage(user_id, success_count, fail_count)
-            
-            total = success_count + fail_count
-            rate = int(success_count / total * 100) if total > 0 else 0
-            user_type = "VIP 💎" if db.is_vip(user_id) else "عادی 👤"
-            remaining = VIP_LIMIT - db.get_daily_count(user_id) if db.is_vip(user_id) else NORMAL_LIMIT - db.get_daily_count(user_id)
-            
-            bot.edit_message_text(
-                f"✅ **پایان فرآیند**\n\n"
-                f"📱 **شماره:** {mask_phone(phone)}\n"
-                f"👤 **نوع کاربر:** {user_type}\n"
-                f"✅ **موفق:** {success_count}\n"
-                f"❌ **ناموفق:** {fail_count}\n"
-                f"📊 **نرخ موفقیت:** {rate}%\n"
-                f"🔰 **باقیمانده امروز:** {remaining}\n"
-                f"🌐 **سرور:** لیارا",
-                chat_id, msg_id,
-                parse_mode="Markdown"
-            )
+    if text == "=":
+        if current_expr:
+            success, result = calculate(current_expr)
+            if success:
+                user_data[user_id]["last_result"] = result
+                user_data[user_id]["expression"] = str(result)
+                bot.send_message(
+                    message.chat.id,
+                    f"✅ **نتیجه:** `{result}`",
+                    parse_mode="Markdown"
+                )
+            else:
+                bot.send_message(message.chat.id, result)  # result پیام خطاست
+                user_data[user_id]["expression"] = ""
         else:
-            bot.edit_message_text(
-                f"❌ **خطا در اتصال به سرور لیارا**\n\n"
-                f"📱 **شماره:** {mask_phone(phone)}\n"
-                f"⚠️ **خطا:** {details.get('error', 'نامشخص')}\n\n"
-                f"🔄 لطفاً دوباره تلاش کنید.",
-                chat_id, msg_id,
-                parse_mode="Markdown"
-            )
-    except Exception as e:
-        bot.edit_message_text(
-            f"❌ **خطا:** {str(e)[:100]}",
-            chat_id, msg_id
-        )
-    finally:
-        user_processes.pop(chat_id, None)
-
-@bot.message_handler(func=lambda m: m.text == "📊 راهنما")
-def help_message(message):
-    user_type = "VIP 💎" if db.is_vip(message.from_user.id) else "عادی 👤"
-    limit = VIP_LIMIT if db.is_vip(message.from_user.id) else NORMAL_LIMIT
+            bot.send_message(message.chat.id, "⚠️ هیچ عبارتی وارد نشده است!")
+        return
     
-    text = (
-        "📚 **راهنمای استفاده**\n\n"
-        "1️⃣ روی دکمه **🚀 شروع بمباران** کلیک کنید\n"
-        "2️⃣ شماره موبایل را وارد کنید\n"
-        "3️⃣ منتظر بمانید\n\n"
-        f"👤 **نوع کاربر:** {user_type}\n"
-        f"📊 **محدودیت:** {limit} بار در روز\n"
-        f"🔰 **تعداد APIها:** 100+ (روی لیارا)\n\n"
-        f"👨‍💻 **سازنده:** @{DEVELOPER_USERNAME}\n"
-        f"🤖 **بات ارتباطی:** @{DEVELOPER_USERNAME}\n"
-        f"📢 **کانال پشتیبانی:** {SUPPORT_CHANNEL}\n\n"
-        "💎 **برای دریافت VIP با ادمین تماس بگیرید**"
-    )
-    bot.send_message(message.chat.id, text, parse_mode="Markdown")
-
-@bot.message_handler(func=lambda m: m.text == "📊 آمار من")
-def my_stats(message):
-    user_id = message.from_user.id
-    daily = db.get_daily_count(user_id)
-    total, join_date, is_vip, vip_expiry = db.get_user_stats(user_id)
-    limit = VIP_LIMIT if is_vip else NORMAL_LIMIT
-    remaining = limit - daily
-    
-    status = "👑 ادمین" if is_admin(user_id) else ("💎 VIP" if is_vip else "👤 کاربر عادی")
-    
-    text = (
-        f"📊 **آمار شما**\n\n"
-        f"🆔 **آیدی:** `{user_id}`\n"
-        f"👤 **نوع:** {status}\n"
-        f"📅 **عضویت:** {join_date}\n"
-        f"📊 **امروز:** {daily}/{limit}\n"
-        f"✅ **باقیمانده:** {remaining}\n"
-        f"🔰 **کل استفاده:** {total}"
-    )
-    
-    if is_vip and vip_expiry:
-        expiry_date = vip_expiry.split('T')[0]
-        text += f"\n⏳ **انقضای VIP:** {expiry_date}"
-    
-    bot.send_message(message.chat.id, text, parse_mode="Markdown")
-
-@bot.message_handler(func=lambda m: m.text == "💎 وضعیت VIP")
-def vip_status(message):
-    user_id = message.from_user.id
-    if db.is_vip(user_id):
-        daily = db.get_daily_count(user_id)
-        remaining = VIP_LIMIT - daily
-        _, _, _, expiry = db.get_user_stats(user_id)
-        expiry_date = expiry.split('T')[0] if expiry else "نامشخص"
-        
-        text = (
-            "💎 **وضعیت VIP شما**\n\n"
-            "✅ شما کاربر ویژه هستید\n"
-            f"📊 محدودیت شما: {VIP_LIMIT} بار در روز\n"
-            f"📊 استفاده امروز: {daily}/{VIP_LIMIT}\n"
-            f"✅ باقیمانده: {remaining}\n"
-            f"⏳ تاریخ انقضا: {expiry_date}\n\n"
-            "🔰 مزایا: محدودیت بالاتر، پشتیبانی優先"
-        )
+    # تبدیل دکمه‌ها به کاراکترهای مناسب
+    if text == "×":
+        char = "*"
+    elif text == "÷":
+        char = "/"
+    elif text == "√":
+        char = "sqrt("
+    elif text == "^":
+        char = "**"
+    elif text == "%":
+        char = "%"
+    elif text == "π":
+        char = "pi"
+    elif text == "e":
+        char = "e"
     else:
-        text = (
-            "💎 **دریافت VIP**\n\n"
-            "با دریافت VIP می‌توانید:\n"
-            f"• روزانه {VIP_LIMIT} بار استفاده کنید\n"
-            "• به APIهای ویژه دسترسی دارید\n"
-            "• پشتیبانی優先\n\n"
-            f"برای دریافت با ادمین تماس بگیرید: @{DEVELOPER_USERNAME}"
-        )
-    bot.send_message(message.chat.id, text, parse_mode="Markdown")
-
-@bot.message_handler(func=lambda m: m.text == "💎 پنل VIP")
-def vip_panel(message):
-    if not db.is_vip(message.from_user.id) and not is_admin(message.from_user.id):
-        bot.send_message(message.chat.id, "⛔ این بخش فقط برای کاربران VIP است!")
-        return
+        char = text
     
-    text = (
-        "💎 **پنل VIP**\n\n"
-        f"✅ شما کاربر ویژه هستید\n"
-        f"📊 محدودیت شما: {VIP_LIMIT} بار در روز\n"
-        f"🔰 دسترسی به همه APIها\n"
-        f"⚡ پشتیبانی優先\n\n"
-        "برای اطلاعات بیشتر با ادمین تماس بگیرید."
+    user_data[user_id]["expression"] = current_expr + char
+    current = user_data[user_id]["expression"] or "0"
+    
+    bot.send_message(
+        message.chat.id,
+        f"📝 **عبارت فعلی:** `{current}`\n🔢 برای محاسبه = را بزنید",
+        parse_mode="Markdown"
     )
-    
-    bot.send_message(message.chat.id, text, parse_mode="Markdown")
-
-@bot.message_handler(func=lambda m: m.text == "👑 پنل مدیریت")
-def admin_panel(message):
-    if not is_admin(message.from_user.id):
-        bot.send_message(message.chat.id, "⛔ دسترسی غیرمجاز!")
-        return
-    
-    markup = InlineKeyboardMarkup(row_width=2)
-    markup.add(
-        InlineKeyboardButton("📊 آمار کلی", callback_data="admin_stats"),
-        InlineKeyboardButton("💎 مدیریت VIP", callback_data="admin_vip"),
-        InlineKeyboardButton("📋 لیست VIP", callback_data="vip_list"),
-        InlineKeyboardButton("➕ افزودن VIP", callback_data="vip_add"),
-        InlineKeyboardButton("➖ حذف VIP", callback_data="vip_remove"),
-        InlineKeyboardButton("📨 تیکت‌ها", callback_data="admin_tickets"),
-        InlineKeyboardButton("🔄 ریست Webhook", callback_data="admin_webhook")
-    )
-    
-    stats = db.get_global_stats()
-    tickets = db.get_all_tickets('باز')
-    
-    text = (
-        "👑 **پنل مدیریت**\n\n"
-        f"📊 **آمار کلی:**\n"
-        f"👥 کل کاربران: {stats['total_users']}\n"
-        f"💎 VIP: {stats['vip_users']}\n"
-        f"📊 کل درخواست: {stats['total_requests']}\n"
-        f"💎 درخواست VIP: {stats['vip_requests']}\n"
-        f"👤 درخواست عادی: {stats['normal_requests']}\n\n"
-        f"📨 تیکت‌های باز: {len(tickets)}\n"
-        f"🔗 **وضعیت لیارا:** {LIARA_API_URL}"
-    )
-    
-    bot.send_message(message.chat.id, text, parse_mode="Markdown", reply_markup=markup)
-
-@bot.callback_query_handler(func=lambda call: call.data.startswith(('admin_', 'vip_')))
-def admin_callbacks(call):
-    if not is_admin(call.from_user.id):
-        bot.answer_callback_query(call.id, "⛔ دسترسی غیرمجاز!")
-        return
-    
-    if call.data == "admin_stats":
-        stats = db.get_global_stats()
-        text = "📊 **آمار کلی**\n\n"
-        text += f"👥 کل کاربران: {stats['total_users']}\n"
-        text += f"💎 VIP: {stats['vip_users']}\n"
-        text += f"📊 کل درخواست: {stats['total_requests']}\n"
-        text += f"💎 درخواست VIP: {stats['vip_requests']}\n"
-        text += f"👤 درخواست عادی: {stats['normal_requests']}\n\n"
-        text += "📈 **آمار هفتگی:**\n"
-        for day in stats['weekly']:
-            text += f"  • {day[0]}: {day[1]} کل ({day[2]} VIP)\n"
-        bot.send_message(call.message.chat.id, text, parse_mode="Markdown")
-    
-    elif call.data == "admin_vip":
-        vips = db.get_vip_list()
-        if vips:
-            text = "💎 **لیست کاربران VIP:**\n\n"
-            for vip in vips:
-                user_id, username, first_name, expiry = vip
-                expiry_date = expiry.split('T')[0] if expiry else "نامشخص"
-                text += f"• {first_name} - `{user_id}` (@{username})\n  ⏳ انقضا: {expiry_date}\n\n"
-        else:
-            text = "📭 هیچ کاربر VIP وجود ندارد"
-        bot.send_message(call.message.chat.id, text, parse_mode="Markdown")
-    
-    elif call.data == "vip_list":
-        vips = db.get_vip_list()
-        if vips:
-            text = "📋 **لیست VIP:**\n\n"
-            for vip in vips:
-                user_id, username, first_name, expiry = vip
-                expiry_date = expiry.split('T')[0] if expiry else "نامشخص"
-                text += f"• {first_name} - `{user_id}`\n  ⏳ {expiry_date}\n"
-        else:
-            text = "📭 لیست خالی است"
-        bot.send_message(call.message.chat.id, text, parse_mode="Markdown")
-    
-    elif call.data == "vip_add":
-        msg = bot.send_message(call.message.chat.id, 
-            "➕ **افزودن کاربر VIP**\n\n"
-            "لطفاً آیدی عددی کاربر را وارد کنید:\n"
-            "(مثال: 123456789)")
-        bot.register_next_step_handler(msg, process_vip_add)
-    
-    elif call.data == "vip_remove":
-        msg = bot.send_message(call.message.chat.id,
-            "➖ **حذف VIP کاربر**\n\n"
-            "لطفاً آیدی عددی کاربر را وارد کنید:")
-        bot.register_next_step_handler(msg, process_vip_remove)
-    
-    elif call.data == "admin_tickets":
-        tickets = db.get_all_tickets('باز')
-        if not tickets:
-            bot.send_message(call.message.chat.id, "📭 هیچ تیکت باز وجود ندارد.")
-            return
-        
-        text = "📨 **لیست تیکت‌های باز:**\n\n"
-        for ticket in tickets:
-            ticket_id, user_id, username, t_type, msg, status, date, time = ticket
-            text += f"🎫 **تیکت #{ticket_id}**\n"
-            text += f"👤 کاربر: {user_id} (@{username})\n"
-            text += f"📅 {date} {time}\n"
-            text += f"📝 {msg[:100]}...\n"
-            text += f"💬 پاسخ: /reply {ticket_id}\n"
-            text += "─────────────\n"
-        bot.send_message(call.message.chat.id, text, parse_mode="Markdown")
-    
-    elif call.data == "admin_webhook":
-        set_webhook()
-        bot.answer_callback_query(call.id, "✅ Webhook ریست شد")
-
-def process_vip_add(message):
-    try:
-        user_id = int(message.text.strip())
-        msg = bot.send_message(message.chat.id, "📅 تعداد روزهای VIP را وارد کنید (پیش‌فرض 30):")
-        bot.register_next_step_handler(msg, process_vip_days, user_id)
-    except:
-        bot.send_message(message.chat.id, "❌ آیدی نامعتبر است!")
-
-def process_vip_days(message, user_id):
-    try:
-        days = int(message.text.strip()) if message.text.strip().isdigit() else 30
-        db.set_vip(user_id, days, message.from_user.id)
-        
-        try:
-            bot.send_message(user_id, 
-                f"💎 **تبریک! شما VIP شدید!**\n\n"
-                f"✅ اشتراک {days} روزه فعال شد.\n"
-                f"📊 محدودیت شما: {VIP_LIMIT} بار در روز\n"
-                f"👨‍💻 سازنده: @{DEVELOPER_USERNAME}")
-        except:
-            pass
-        
-        bot.send_message(message.chat.id, f"✅ کاربر {user_id} با {days} روز VIP شد!")
-    except Exception as e:
-        bot.send_message(message.chat.id, f"❌ خطا: {e}")
-
-def process_vip_remove(message):
-    try:
-        user_id = int(message.text.strip())
-        db.remove_vip(user_id)
-        
-        try:
-            bot.send_message(user_id, "❌ اشتراک VIP شما لغو شد.")
-        except:
-            pass
-        
-        bot.send_message(message.chat.id, f"✅ VIP کاربر {user_id} حذف شد!")
-    except:
-        bot.send_message(message.chat.id, "❌ آیدی نامعتبر است!")
-
-@bot.message_handler(commands=['stop'])
-def stop_process(message):
-    if message.chat.id in user_processes:
-        user_processes[message.chat.id] = False
-        bot.send_message(message.chat.id, "⛔ فرآیند متوقف شد.")
-    else:
-        bot.send_message(message.chat.id, "⚠️ فرآیندی در حال اجرا نیست.")
-
-@bot.message_handler(commands=['webhook'])
-def webhook_command(message):
-    if not is_admin(message.from_user.id):
-        bot.reply_to(message, "⛔ دسترسی ندارید")
-        return
-    
-    try:
-        info = bot.get_webhook_info()
-        text = f"📊 **وضعیت Webhook**\n\n"
-        text += f"📌 آدرس: {info.url or 'تنظیم نشده'}\n"
-        text += f"📊 آپدیت‌ها: {info.pending_update_count}\n"
-        if info.last_error_message:
-            text += f"⚠️ خطا: {info.last_error_message}\n"
-        bot.reply_to(message, text, parse_mode="Markdown")
-    except Exception as e:
-        bot.reply_to(message, f"❌ خطا: {e}")
-
-# ==================== هندلر تست برای همه پیام‌ها ====================
 
 @bot.message_handler(func=lambda m: True)
-def echo_all(message):
-    """پاسخ به همه پیام‌ها برای تست"""
-    print(f"📨 Echo handler called for message: {message.text}")
-    print(f"👤 From: {message.from_user.id} - {message.from_user.first_name}")
-    
-    try:
-        bot.reply_to(message, f"سلام! پیام شما دریافت شد: {message.text}\n\n🆔 آیدی شما: `{message.from_user.id}`")
-        print("✅ Reply sent successfully")
-    except Exception as e:
-        print(f"❌ Error sending reply: {e}")
+def default_handler(message):
+    bot.reply_to(
+        message,
+        "❌ دستور نامعتبر!\nاز دکمه‌های ماشین حساب استفاده کنید."
+    )
 
 # ==================== اجرا ====================
 
 if __name__ == "__main__":
     print("="*60)
-    print("🤖 ربات SMS Bomber VIP - نسخه نهایی برای رندر")
+    print("🧮 ربات ماشین حساب شیشه‌ای - Glass Calculator")
     print("="*60)
     print(f"👨‍💻 سازنده: @{DEVELOPER_USERNAME}")
-    print(f"🤖 بات ارتباطی: @{DEVELOPER_USERNAME}")
     print(f"📢 کانال پشتیبانی: {SUPPORT_CHANNEL}")
-    print(f"📌 محدودیت عادی: {NORMAL_LIMIT} بار در روز")
-    print(f"📌 محدودیت VIP: {VIP_LIMIT} بار در روز")
-    print(f"📌 آدرس API: {LIARA_API_URL}")
+    print(f"📌 آدرس بات: {BASE_URL}")
     print("="*60)
     
-    # تنظیم webhook در ترد جدا
+    # تنظیم webhook
     def run_setup():
         time.sleep(3)
         set_webhook()
