@@ -27,7 +27,7 @@ CHANNEL_LINK = "https://t.me/death_star_sms_bomber"
 
 # اطلاعات سازنده
 DEVELOPER_USERNAME = "top_topy_messenger_bot"  # یوزرنیم بات سازنده
-DEVELOPER_ID = 8226091292  # آیدی عددی سازنده
+DEVELOPER_ID = 7620484201  # آیدی عددی سازنده
 SUPPORT_CHANNEL = "@death_star_sms_bomber"  # کانال پشتیبانی
 
 # محدودیت‌های روزانه
@@ -1070,9 +1070,19 @@ def webhook_command(message):
     except Exception as e:
         bot.reply_to(message, f"❌ خطا: {e}")
 
+# ==================== هندلر تست برای همه پیام‌ها ====================
+
 @bot.message_handler(func=lambda m: True)
-def default_handler(message):
-    bot.reply_to(message, "❌ دستور نامعتبر. از دکمه‌های منو استفاده کنید.")
+def echo_all(message):
+    """پاسخ به همه پیام‌ها برای تست"""
+    print(f"📨 Echo handler called for message: {message.text}")
+    print(f"👤 From: {message.from_user.id} - {message.from_user.first_name}")
+    
+    try:
+        bot.reply_to(message, f"سلام! پیام شما دریافت شد: {message.text}\n\n🆔 آیدی شما: `{message.from_user.id}`")
+        print("✅ Reply sent successfully")
+    except Exception as e:
+        print(f"❌ Error sending reply: {e}")
 
 # ==================== اجرا ====================
 
